@@ -1,0 +1,21 @@
+name: 기능 제안
+description: 새 커넥터·탐지 규칙·화면 기능 제안
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 해결하려는 운영 문제
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 제안
+      description: 대상 제품·API(1차 문서 링크가 있으면 함께), 화면·알림 형태
+  - type: checkboxes
+    id: ro
+    attributes:
+      label: 확인
+      options:
+        - label: 수집은 읽기 전용 계정으로 가능하다(쓰기가 필요하면 조치 게이트 경유로 설명)

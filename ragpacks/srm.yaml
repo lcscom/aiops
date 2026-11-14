@@ -1,0 +1,17 @@
+# Site Recovery Manager / Live Site Recovery RAG 팩
+id: srm
+name: SRM · vSphere Replication 지식 팩
+product: srm
+version: "2026.10"
+description: SRM·vSphere Replication 취약점(NVD) + KB + 복구 계획·복제 오류 대응 가이드
+output: dist/srm.ragpack
+sources:
+  - type: nvd
+    keywords: ["Site Recovery Manager", "vSphere Replication"]
+    cpe_filter: ["vmware:site_recovery_manager", "vmware:vsphere_replication"]
+    since: "2019-01-01"
+  - type: kb
+    ids_file: ragpacks/sources/srm_kb_ids.txt
+  - type: local
+    path: ragpacks/sources/srm
+    doc_type: guide

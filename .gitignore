@@ -1,0 +1,37 @@
+# 런타임 데이터·비밀
+data/
+certs/
+logs/
+.env
+config.yaml
+patches/
+*.key
+!appliance/patch/patch-signing.pub
+
+# 빌드 산출물
+out/
+docs/out/
+*.ova
+*.ovf
+*.mf
+*.vmdk
+*.raw
+*.qcow2
+*.tgz
+*.tgz.sha256
+
+# 파이썬·도구
+__pycache__/
+*.pyc
+.pytest_cache/
+.hypothesis/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+
+# OS·에디터
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

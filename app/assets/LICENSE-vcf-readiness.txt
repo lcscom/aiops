@@ -1,0 +1,16 @@
+Data in app/assets/bcg_cpu_series.json is derived from hcl/CPU Series_07-22-2026.csv of https://github.com/vmware/vcf-readiness (commit 452c8321), distributed under the following license. The rest of app/readiness/ is an independent implementation (no code copied); vcf-readiness was used as a design reference.
+
+# SOFTWARE LICENSE AGREEMENT
+
+Copyright (c) CA, Inc. All rights reserved.
+
+You are hereby granted a non-exclusive, worldwide, royalty-free license under CA, Inc.'s copyrights to use, copy, modify, and distribute this software in source code or binary form for use in connection with CA, Inc. products.
+
+This copyright notice shall be included in all copies or substantial portions of the software.
+
+**THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
+
+--- NOTICE ---
+Copyright (c) CA, Inc. All rights reserved.
+
+This product may include a number of subcomponents with separate copyright notices and license terms. Your use of these subcomponents is subject to the terms and conditions of the subcomponent's license, as noted in the THIRD_PARTY_LICENSES.md file.

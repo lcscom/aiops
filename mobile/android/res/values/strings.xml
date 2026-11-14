@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">VCF AIops</string>
+    <string name="settings">앱 설정</string>
+    <string name="widget_desc">진행 중 인시던트·심각·미접수 수</string>
+    <string name="widget_name">VCF AIops 상태</string>
+</resources>

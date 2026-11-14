@@ -1,0 +1,15 @@
+[Unit]
+Description=VCF AIops appliance provisioning (accounts, NTP, certificates, application)
+Documentation=file:///opt/vcf-aiops/docs/OVA.md
+After=network-online.target time-sync.target vcf-aiops-provision-early.service systemd-user-sessions.service
+Wants=network-online.target
+ConditionPathExists=/opt/vcf-aiops/appliance/provision.py
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 -I /opt/vcf-aiops/appliance/provision.py late
+TimeoutStartSec=1800
+
+[Install]
+WantedBy=multi-user.target

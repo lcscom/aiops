@@ -1,0 +1,2 @@
+# Broadcom KB 문서 번호 (한 줄에 하나, # 주석)
+318939   # Configuring syslog on ESXi

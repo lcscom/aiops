@@ -1,0 +1,327 @@
+#!/usr/bin/env bash
+# VCF AIops 운영 도우미 — vcf-aiopsctl status|logs|health|restart|stop|start|backup|config|ports|version|support|ovf|provision-log|reset-admin|tunnel|pause|resume|pause-status
+#                         patch <번들.tgz>|rollback [--list|백업명] [--no-db] [--no-verify]|patch-history|patch-request(내부)
+#                         trust-key list|add <파일.pub> [--name 이름] [--yes]|remove <이름> [--yes]
+set -uo pipefail
+SVC=vcf-aiops; ETC=/etc/vcf-aiops; DATA=/var/lib/vcf-aiops; PREFIX=/opt/vcf-aiops
+TMPB=/var/tmp; RS="$ETC/patch-state"; BKIDX="$RS/backups.json"; USR=aiops       # RS = root 전용(잠금·백업 색인 원본)
+PORT="$(sed -n 's/^  port:[[:space:]]*\([0-9]\+\).*/\1/p' "$ETC/config.yaml" 2>/dev/null | head -1)"; PORT="${PORT:-8630}"
+BHOST="$(sed -n '/^server:/,/^[^[:space:]#]/s/^  host:[[:space:]]*\([^[:space:]#]*\).*/\1/p' "$ETC/config.yaml" 2>/dev/null | head -1 | tr -d "\"'")"
+case "$BHOST" in ""|0.0.0.0|::|\*|"[::]") BHOST=127.0.0.1 ;; *:*) BHOST="[${BHOST#[}"; BHOST="${BHOST%]}]" ;; esac    # 특정 주소에만 바인드한 경우 그 주소로 확인
+url() { if curl -fsk --max-time 2 "https://${BHOST}:${PORT}/healthz" >/dev/null 2>&1; then echo "https://${BHOST}:${PORT}"; else echo "http://${BHOST}:${PORT}"; fi; }
+_need_root() { [[ $EUID -eq 0 ]] || { echo "sudo 로 실행하세요: sudo vcf-aiopsctl $*"; exit 1; }; }
+_sha() { sha256sum "$1" | cut -d' ' -f1; }
+_key_ok() { [[ -f "$1" && ! -L "$1" ]] || return 1; [[ $EUID -ne 0 ]] && return 0; find "$1" -maxdepth 0 -user root ! -perm /022 2>/dev/null | grep -q .; }   # root 소유·남이 못 쓰는 키만
+_trusted_keys() { local k; for k in "$PREFIX/appliance/patch/patch-signing.pub" "$ETC"/patch-trust/*.pub; do _key_ok "$k" && echo "$k"; done; }
+_is_ed25519() { [[ -f "$1" && $(stat -c %s "$1") -le 4096 ]] && openssl pkey -pubin -in "$1" -noout -text 2>/dev/null | head -1 | grep -q '^ED25519 Public-Key'; }
+_fp() { local d; d="$(openssl pkey -pubin -in "$1" -outform DER 2>/dev/null | sha256sum)" || return 1; echo "${d%% *}"; }   # 지문 = 공개 키 DER 의 SHA-256
+PYH="$(cat <<'PY'
+import hashlib, json, os, re, stat, sys, time
+def gid(g):
+    try:
+        import grp; return grp.getgrnam(g).gr_gid
+    except Exception:
+        return -1
+def awrite(path, data, group, mode):                 # 임시 파일(O_EXCL·O_NOFOLLOW) → rename
+    tmp = os.path.join(os.path.dirname(path), ".%s.%d.%s" % (os.path.basename(path), os.getpid(), os.urandom(4).hex()))
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    try:
+        os.write(fd, data.encode())
+        if os.geteuid() == 0: os.fchown(fd, 0, gid(group) if group else 0)
+        os.fchmod(fd, mode)
+    finally:
+        os.close(fd)
+    os.replace(tmp, path)
+def sha(p):
+    h = hashlib.sha256()
+    with open(p, "rb") as f:
+        for c in iter(lambda: f.read(1 << 20), b""): h.update(c)
+    return h.hexdigest()
+def vt(v): return tuple(int(x) if x.isdigit() else 0 for x in re.split(r"[.\-]", v or "0")[:4])
+def fail(msg): print(msg, file=sys.stderr); sys.exit(1)
+def check(d):                                         # 번들 폴더: manifest 가 모든 파일을 SHA-256 으로 덮는지(apply.sh 의 check 와 같게 유지)
+    files = {}
+    for root, dirs, fs in os.walk(d):
+        for n in dirs + fs:
+            p = os.path.join(root, n); st = os.lstat(p); rel = os.path.relpath(p, d)
+            if not (stat.S_ISREG(st.st_mode) or stat.S_ISDIR(st.st_mode)): fail("번들에 일반 파일·폴더가 아닌 항목: " + rel)
+            if stat.S_ISREG(st.st_mode): files[rel] = p
+    try:
+        m = json.load(open(os.path.join(d, "manifest.json"), encoding="utf-8"))
+    except Exception as e:
+        fail("manifest.json 형식 오류: %s" % e)
+    if not isinstance(m, dict) or m.get("product") != "vcf-aiops": fail("다른 제품의 번들(product)")
+    for k in ("version", "payload_sha256", "apply_sha256"):
+        if not isinstance(m.get(k), str) or not m[k]: fail("manifest 에 %s 가 없습니다 — 이 번들은 적용하지 않습니다" % k)
+    if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z]+)?", m["version"]): fail("manifest version 형식 오류")
+    extra = m.get("files") or {}
+    if not isinstance(extra, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in extra.items()): fail("manifest files 형식 오류")
+    exp = dict(extra); exp["payload.tar.gz"] = m["payload_sha256"]; exp["apply.sh"] = m["apply_sha256"]
+    for rel, h in exp.items():
+        if rel not in files: fail("번들에 없음: " + rel)
+        if sha(files[rel]) != h: fail("%s SHA-256 불일치 — 번들 손상·변조" % rel)
+    for rel in files:
+        if rel not in exp and rel not in ("manifest.json", "manifest.sig"): fail("manifest 에 없는 파일(서명 범위 밖): " + rel)
+    print(m["version"])
+def req(path, data):                                  # request.json 엄격 검사 → action·file·by·force 를 한 줄씩
+    st = os.lstat(path)
+    if not stat.S_ISREG(st.st_mode) or st.st_size > 4096: fail("요청 파일이 일반 파일이 아니거나 너무 큼")
+    try:
+        j = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        fail("요청 형식 오류(JSON 아님)")
+    if not isinstance(j, dict) or set(j) - {"action", "file", "by", "ts", "force"}: fail("요청 형식 오류(알 수 없는 필드)")
+    act, fil, by, force = j.get("action"), j.get("file", ""), j.get("by", "web"), j.get("force", False)
+    if act not in ("apply", "rollback") or not isinstance(fil, str) or not isinstance(by, str) or not isinstance(force, bool): fail("요청 형식 오류(action·file·by·force)")
+    if "ts" in j and (isinstance(j["ts"], bool) or not isinstance(j["ts"], (int, float))): fail("요청 형식 오류(ts)")
+    if act == "apply":
+        if ".." in fil or not re.fullmatch(re.escape(data + "/patches/incoming/") + r"[0-9]{1,12}-[A-Za-z0-9._-]{1,140}\.(tgz|tar\.gz)", fil): fail("요청 파일 경로 거부")
+    elif fil and (".." in fil or not re.fullmatch(r"vcf-aiops-[0-9A-Za-z._-]{1,120}", fil)): fail("백업 이름 거부")
+    print(act); print(fil); print(re.sub(r"[^\w.@-]", "_", by)[:64] or "web"); print(1 if force else 0)
+def bk(idx, name):                                    # 색인(원본)에서 백업 한 건 → name·version·sha256·ctl_sha256·db_sha256 (이름 비우면 최신)
+    try: bl = [b for b in json.load(open(idx, encoding="utf-8")).get("backups", []) if isinstance(b, dict)]
+    except Exception: bl = []
+    bl.sort(key=lambda b: b.get("ts", 0), reverse=True)
+    b = next((b for b in bl if not name or b.get("name") == name), None)
+    if not b: sys.exit(1)
+    for k in ("name", "version", "sha256", "ctl_sha256", "db_sha256"): print(str(b.get(k) or "-"))
+a = sys.argv[1:]; c = a[0]
+if c == "status":
+    awrite(a[1], json.dumps({"state": a[3], "step": a[4], "from": a[5], "to": a[6], "ts": int(time.time()), "by": a[7]}, ensure_ascii=False) + "\n", a[2], 0o640)
+elif c == "hist":
+    e = {"ts": int(time.time()), "from": a[3], "to": a[4], "result": a[5], "detail": a[6], "by": a[7], "backup": a[8]}
+    fd = os.open(a[1], os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o640)
+    try:
+        os.write(fd, (json.dumps(e, ensure_ascii=False) + "\n").encode())
+        if os.geteuid() == 0: os.fchown(fd, 0, gid(a[2]))
+        os.fchmod(fd, 0o640)
+    finally:
+        os.close(fd)
+elif c == "check": check(a[1])
+elif c == "req": req(a[1], a[2])
+elif c == "bk": bk(a[1], a[2])
+elif c == "vcmp": x, y = vt(a[1]), vt(a[2]); print(1 if x > y else -1 if x < y else 0)
+else: fail("unknown " + c)
+PY
+)"
+_py() { python3 -c "$PYH" "$@"; }
+_cur() { cat "$PREFIX/VERSION" 2>/dev/null || echo unknown; }
+_pd() { [[ -L "$DATA/patches" ]] && { echo "$DATA/patches 가 심볼릭 링크입니다 — 중단" >&2; return 1; }
+        if [[ $EUID -eq 0 ]]; then install -d -m 0770 -o root -g "$USR" "$DATA/patches"; else mkdir -p "$DATA/patches"; fi; }
+_pstatus() { _pd && _py status "$DATA/patches/status.json" "$USR" "$1" "$2" "${3:-}" "${4:-}" "${AIOPS_PATCH_BY:-root}" 2>/dev/null; }   # 상태·단계·from·to
+_phist() { _pd && _py hist "$DATA/patches/history.jsonl" "$USR" "$1" "$2" "$3" "$4" "${AIOPS_PATCH_BY:-${SUDO_USER:-root}}" "${5:-}" 2>/dev/null
+           # 2.36.0 — 패치 폴더는 서비스 계정도 쓸 수 있어 기록을 지우거나 바꿀 수 있다 → root 전용 원본($RS)에도 같이 남긴다(patch-history 는 원본 우선)
+           if [[ $EUID -eq 0 ]]; then install -d -m 0700 "$RS" 2>/dev/null; _py hist "$RS/history.jsonl" "" "$1" "$2" "$3" "$4" "${AIOPS_PATCH_BY:-${SUDO_USER:-root}}" "${5:-}" 2>/dev/null; fi; }   # from·to·결과·내용·백업
+_lock() { if [[ $EUID -eq 0 ]]; then install -d -m 0700 -o root -g root "$RS"; else mkdir -p -m 0700 "$RS"; fi
+          { exec 9>"$RS/lock"; } 2>/dev/null && flock -n 9 || { echo "다른 패치·롤백 작업이 진행 중입니다 — 끝난 뒤 다시 시도하세요"; return 1; }; }
+_vclean() { [[ -n "${VW:-}" && "$VW" == "$TMPB"/vcf-aiops-bundle.* ]] && rm -rf -- "${VW:?}"; VW=""; }
+_bundle_verify() {   # $1=번들(.tgz) [$2=aiops: 서비스 계정 권한으로 읽기] → VW(root 전용 임시 폴더)·VD(검증된 번들 폴더)·VVER. 실행은 반드시 VD 에서
+  local f="$1" k good=0 e d; local -a keys
+  VW="$(mktemp -d "$TMPB/vcf-aiops-bundle.XXXXXX")" || return 1; chmod 0700 "$VW"; VD=""; VVER=""
+  # 먼저 root 전용 폴더로 복사 — 서비스 계정이 쓸 수 있는 incoming/ 의 파일을 검증 뒤에 바꿔치기하지 못하게(TOCTOU)
+  if [[ "${2:-}" == aiops && $EUID -eq 0 ]] && command -v runuser >/dev/null; then runuser -u "$USR" -- head -c 420M -- "$f" > "$VW/bundle.tgz" 2>/dev/null
+  else [[ -f "$f" ]] && head -c 420M -- "$f" > "$VW/bundle.tgz"; fi || { echo "번들을 읽을 수 없습니다: $f" >&2; _vclean; return 1; }
+  mkdir "$VW/x"
+  tar -xzf "$VW/bundle.tgz" -C "$VW/x" --no-same-owner --no-same-permissions 2>/dev/null || { echo "번들 압축 해제 실패" >&2; _vclean; return 1; }
+  d="$(find "$VW/x" -maxdepth 2 -name manifest.json -type f -printf '%h\n' | head -1)"
+  [[ -n "$d" && -f "$d/manifest.sig" && -f "$d/apply.sh" && -f "$d/payload.tar.gz" ]] || { echo "패치 번들 형식 아님(manifest.json·manifest.sig·apply.sh·payload.tar.gz)" >&2; _vclean; return 1; }
+  mapfile -t keys < <(_trusted_keys)
+  for k in "${keys[@]}"; do
+    openssl pkeyutl -verify -pubin -inkey "$k" -rawin -in "$d/manifest.json" -sigfile "$d/manifest.sig" >/dev/null 2>&1 && { good=1; echo "서명 확인: $k" >&2; break; }
+  done
+  if [[ $good -ne 1 ]]; then echo "서명 검증 실패 — 신뢰하는 키로 서명되지 않은 번들은 적용하지 않습니다 (키 교체: sudo vcf-aiopsctl trust-key add <새 키.pub> · docs/PATCH.md)" >&2; _vclean; return 2; fi
+  # 서명은 manifest.json 만 덮는다 → product·apply.sh·payload·그 밖의 모든 파일 SHA-256 이 manifest 와 같아야 실행
+  e="$(_py check "$d" 2>&1)" || { echo "번들 검사 실패 — $e" >&2; _vclean; return 3; }
+  VD="$d"; VVER="$e"; echo "무결성 확인: product·apply.sh·payload·부속 파일 SHA-256 = manifest (버전 $VVER)" >&2
+}
+_patch_run() {   # $1=번들(.tgz) $2=읽는 권한(aiops|"") $3=force(1: 하향·재적용 허용) 나머지=apply.sh 인자 — 검증한 root 전용 사본에서만 apply.sh 실행
+  local f="$1" src="$2" force="$3" rc why; shift 3
+  _bundle_verify "$f" "$src"; rc=$?
+  if [[ $rc -ne 0 ]]; then why="번들 검사 실패"; [[ $rc -eq 2 ]] && why="서명 검증 실패"; [[ $rc -eq 3 ]] && why="무결성 검증 실패(manifest 와 다름)"
+    _pstatus failed "$why" "$(_cur)" ""; return 1; fi
+  if [[ "$force" != 1 && "$(_py vcmp "$VVER" "$(_cur)")" != 1 ]]; then   # 웹 요청: 하향·재적용은 요청에 force 가 있어야(웹 계층과 같은 규칙)
+    echo "현재 $(_cur) 보다 새 버전이 아닙니다($VVER) — 같은 버전 재적용·하향은 force"; _pstatus failed "새 버전이 아님($VVER) — force 필요" "$(_cur)" "$VVER"; _vclean; return 1; fi
+  AIOPS_PATCH_VERIFIED=1 bash "$VD/apply.sh" "$@"; rc=$?
+  _vclean; return $rc
+}
+_bk_verify() {   # 현재 폴더(= 백업 폴더, cd -P 로 고정)와 그 부모가 root 전용이고 색인(원본)의 SHA-256 과 같은지
+  local name="$1" own; local -a e
+  own="$(stat -c '%u %a' . 2>/dev/null) $(stat -c '%u %a' .. 2>/dev/null)"
+  [[ "$own" == "$EUID 700 $EUID 700" ]] || { echo "백업 폴더가 root 전용(0700)이 아닙니다 — 신뢰할 수 없어 복원하지 않습니다"; return 1; }
+  mapfile -t e < <(_py bk "$BKIDX" "$name" 2>/dev/null)
+  [[ ${#e[@]} -eq 5 ]] || { echo "백업 색인($BKIDX)에 없는 백업입니다: $name"; return 1; }
+  [[ "$(_sha ./code.tar.gz)" == "${e[2]}" ]] || { echo "code.tar.gz SHA-256 이 색인과 다릅니다 — 복원하지 않습니다"; return 1; }
+  if [[ -f ./vcf-aiopsctl ]]; then [[ "$(_sha ./vcf-aiopsctl)" == "${e[3]}" ]] || { echo "vcf-aiopsctl SHA-256 이 색인과 다릅니다"; return 1; }; fi
+  if [[ -f ./aiops.db && "${NODB:-0}" != 1 ]]; then [[ "$(_sha ./aiops.db)" == "${e[4]}" ]] || { echo "aiops.db SHA-256 이 색인과 다릅니다(--no-db 로 프로그램만 복원 가능)"; return 1; }; fi
+  echo "백업 확인: root 전용 · SHA-256 = 색인"
+}
+_rollback() {   # $1=백업 이름(비우면 최신) · NODB=1 이면 DB 는 그대로 · NOVERIFY=1(CLI 전용) 이면 색인 확인 생략
+  local BK="$DATA/patches/backup" name="$1" b d
+  _lock || return 1
+  [[ -n "$name" ]] || name="$(_py bk "$BKIDX" "" 2>/dev/null | head -1)"
+  [[ -n "$name" ]] || name="$(ls -1t "$BK" 2>/dev/null | grep '^vcf-aiops-' | head -1)"
+  [[ "$name" =~ ^vcf-aiops-[0-9A-Za-z._-]+$ && "$name" != *..* ]] || { echo "백업이 없습니다 (vcf-aiopsctl rollback --list)"; return 1; }
+  b="$BK/$name"
+  [[ ! -L "$BK" && -d "$b" && ! -L "$b" && -f "$b/code.tar.gz" ]] || { echo "백업이 없습니다 (vcf-aiopsctl rollback --list)"; return 1; }
+  cd -P -- "$b" || return 1                            # 이후는 상대 경로만 — 상위 폴더 이름을 바꿔치기해도 같은 inode 를 읽는다
+  if [[ "${NOVERIFY:-0}" == 1 ]]; then echo "경고: 백업 색인·권한 확인을 생략합니다(--no-verify)"
+  else _bk_verify "$name" || { echo "(2.30 이전 방식 백업이면 내용을 직접 확인한 뒤: sudo vcf-aiopsctl rollback $name --no-verify)"; return 1; }; fi
+  local cur; cur="$(_cur)"; local to; to="$(cat ./VERSION 2>/dev/null || echo unknown)"
+  echo "롤백: $cur → $to ($name)"
+  _pstatus running "롤백 $cur → $to" "$cur" "$to"
+  systemctl stop "$SVC"
+  for d in app scripts deploy ragpacks docs tests appliance; do rm -rf "${PREFIX:?}/$d"; done   # apply.sh CODE_DIRS 와 같게
+  rm -f "${PREFIX:?}/VERSION" "${PREFIX:?}/release.json"
+  tar -xzf ./code.tar.gz -C "$PREFIX" --no-same-owner
+  [[ -f ./vcf-aiopsctl ]] && install -m 0755 ./vcf-aiopsctl /usr/local/bin/vcf-aiopsctl.rb && mv -f /usr/local/bin/vcf-aiopsctl.rb /usr/local/bin/vcf-aiopsctl
+  local db; db="$(sed -n 's/^ *db_path: *//p' "$ETC/config.yaml" 2>/dev/null | head -1)"; db="${db:-$DATA/aiops.db}"
+  if [[ "${NODB:-0}" != 1 && -f ./aiops.db ]]; then install -o "$USR" -g "$USR" -m 0640 ./aiops.db "$db"; rm -f "${db:?}-wal" "${db:?}-shm"; echo "DB 복원(백업 시점)"; fi
+  find "$PREFIX" -name '__pycache__' -prune -exec rm -rf {} + 2>/dev/null || true
+  chown -R root:root "$PREFIX"; chmod -R go-w "$PREFIX"
+  [[ -s ./pip-freeze.txt ]] && echo "참고: 패치에서 의존 패키지가 바뀌었다면 venv 복원 — $PREFIX/venv/bin/python -m pip install --no-deps -r $b/pip-freeze.txt"
+  systemctl daemon-reload; systemctl start "$SVC"
+  local ok=0 i; for i in $(seq 1 60); do curl -fsk --max-time 2 "$(url)/readyz" >/dev/null 2>&1 && { ok=1; break; }; sleep 2; done
+  local st=ok; [[ $ok -eq 1 ]] || st=failed
+  _pstatus "$st" "롤백 $cur → $to" "$cur" "$to"
+  _phist "$cur" "$to" "rollback_$st" "manual rollback" "$b"
+  [[ $ok -eq 1 ]] && echo "롤백 완료: $to" || { echo "롤백 후 서비스 응답 없음 — journalctl -u $SVC"; return 1; }
+}
+_trust_key() {   # list | add <파일.pub> [--name 이름] [--yes] | remove <이름> [--yes]
+  local TD="$ETC/patch-trust" sub="${1:-list}" yes=0 name="" file="" a k fp n=0; shift || true
+  while [[ $# -gt 0 ]]; do case "$1" in --yes|-y) yes=1; shift ;; --name) name="${2:-}"; shift; shift || true ;; *) [[ -z "$file" ]] && file="$1"; shift ;; esac; done
+  case "$sub" in
+    list) for k in "$PREFIX/appliance/patch/patch-signing.pub" "$TD"/*.pub; do [[ -e "$k" ]] || continue
+            fp="$(_fp "$k")" || fp="(읽을 수 없음 — Ed25519 공개 키 아님)"
+            a="추가 키"; [[ "$k" == "$PREFIX/"* ]] && a="설치본 키"; _key_ok "$k" || a+=" · 무시됨(root 소유·쓰기 금지 아님)"
+            printf '%-28s SHA256:%s  (%s)\n' "$(basename "$k" .pub)" "$fp" "$a"; n=$((n+1)); done
+          [[ $n -gt 0 ]] || echo "신뢰 키 없음" ;;
+    add)  _need_root "trust-key add $file"
+          [[ -n "$file" && -f "$file" ]] || { echo "사용: sudo vcf-aiopsctl trust-key add <공개 키.pub> [--name 이름] [--yes]"; return 1; }
+          _is_ed25519 "$file" || { echo "PEM 형식의 Ed25519 공개 키가 아닙니다: $file"; return 1; }
+          [[ -n "$name" ]] || name="$(basename "$file" .pub)"
+          [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$name" != *..* ]] || { echo "키 이름에는 영문·숫자·.·_·- 만 쓸 수 있습니다(공백 불가): '$name' — --name 으로 지정"; return 1; }
+          fp="$(_fp "$file")" || { echo "지문 계산 실패"; return 1; }
+          for k in "$PREFIX/appliance/patch/patch-signing.pub" "$TD"/*.pub; do
+            [[ -f "$k" && "$(_fp "$k")" == "$fp" ]] && { echo "이미 신뢰하는 키입니다: $k (SHA256:$fp)"; return 0; }; done
+          [[ -e "$TD/$name.pub" ]] && { echo "같은 이름의 다른 키가 있습니다: $TD/$name.pub — 먼저 remove 하거나 --name 으로 다른 이름"; return 1; }
+          echo "추가할 패치 서명 키: $name"; echo "  지문(공개 키 DER 의 SHA-256): $fp"
+          echo "  배포처가 별도 경로(릴리스 노트·전화 등)로 알려 준 지문과 같은지 확인하세요. 이 키로 서명한 번들은 root 권한으로 적용됩니다."
+          if [[ $yes -ne 1 ]]; then read -r -p "  신뢰 목록에 추가하려면 yes 입력: " a || a=""; [[ "$a" == yes ]] || { echo "취소"; return 1; }; fi
+          if [[ $EUID -eq 0 ]]; then install -d -m 0755 -o root -g root "$TD"; else mkdir -p -m 0755 "$TD"; fi
+          openssl pkey -pubin -in "$file" -pubout -out "$TD/.$name.tmp" 2>/dev/null && chmod 0644 "$TD/.$name.tmp" || { echo "키 설치 실패"; return 1; }
+          if [[ $EUID -eq 0 ]]; then chown root:root "$TD/.$name.tmp"; fi
+          mv -f "$TD/.$name.tmp" "$TD/$name.pub" || return 1
+          _phist "$(_cur)" "$(_cur)" trust_add "$name SHA256:$fp" ""
+          echo "추가 완료: $TD/$name.pub" ;;
+    remove) name="$file"; _need_root "trust-key remove $name"
+          [[ "$name" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ && "$name" != *..* ]] || { echo "사용: sudo vcf-aiopsctl trust-key remove <이름> [--yes]  (이름은 trust-key list)"; return 1; }
+          [[ -f "$TD/$name.pub" ]] || { echo "추가 키 목록에 없습니다: $name (설치본 키는 지울 수 없습니다)"; return 1; }
+          fp="$(_fp "$TD/$name.pub")" || fp="?"
+          echo "삭제할 키: $name SHA256:$fp"
+          if [[ $yes -ne 1 ]]; then read -r -p "  신뢰 목록에서 빼려면 yes 입력: " a || a=""; [[ "$a" == yes ]] || { echo "취소"; return 1; }; fi
+          rm -f -- "${TD:?}/${name:?}.pub" || return 1
+          _phist "$(_cur)" "$(_cur)" trust_remove "$name SHA256:$fp" ""
+          echo "삭제 완료: $name" ;;
+    *) echo "사용: vcf-aiopsctl trust-key list | add <공개 키.pub> [--name 이름] [--yes] | remove <이름> [--yes]"; return 1 ;;
+  esac
+}
+case "${1:-status}" in
+  status)
+    systemctl --no-pager status "$SVC" | head -12
+    echo; echo "readyz: $(curl -sk --max-time 3 "$(url)/readyz" || echo '응답 없음')" ;;
+  logs)    journalctl -u "$SVC" -f -n "${2:-200}" ;;
+  health)  curl -sk --max-time 5 "$(url)/readyz"; echo
+           echo "(상세는 웹 콘솔 › 플랫폼 상태 또는 API 토큰으로 GET /api/health)" ;;
+  restart|stop|start) sudo systemctl "$1" "$SVC" && echo "$1 완료" ;;
+  backup)  # 온라인 일관 백업(서비스 중지 불필요) — sqlite3 .backup
+           f="$DATA/backup/manual-$(date +%Y%m%d-%H%M%S).db"
+           sudo -u aiops sqlite3 "$DATA/aiops.db" ".backup '$f'" && echo "백업: $f ($(du -h "$f" | cut -f1))"
+           echo "설정·키 백업도 함께 보관하세요: sudo tar czf /root/vcf-aiops-etc-$(date +%F).tgz $ETC" ;;
+  config)  sudo -u aiops env AIOPS_CONFIG="$ETC/config.yaml" AIOPS_ENV_FILE="$ETC/.env" AIOPS_SECRET_KEY_FILE="$ETC/secret.key" \
+             "$PREFIX/venv/bin/python" -c "import sys;sys.path.insert(0,'$PREFIX');from app.config import load_config;c=load_config();print('설정 OK — db',c['server']['db_path'],'· 커넥터',len(c['connectors']),'· LLM',c['llm']['base_url'])" ;;
+  ports)   ss -lntup 2>/dev/null | grep -E ":(${PORT}|514|6514|162)\b" || echo "리스닝 포트 없음" ;;
+  version) echo "VCF AIops $(cat "$PREFIX/VERSION" 2>/dev/null || echo '(버전 파일 없음 — 1.3 이전)')"
+           [[ -f /etc/vcf-aiops-appliance-release ]] && echo "어플라이언스 이미지: $(head -1 /etc/vcf-aiops-appliance-release)"
+           "$PREFIX/venv/bin/python" -c "import platform;print('python',platform.python_version())"; ls -l --time-style=long-iso "$PREFIX/app/main.py" | awk '{print "app 배포",$6,$7}' ;;
+  support) # 지원 번들(비밀값 제외): 서비스 상태·최근 로그·설정(마스킹)·포트·디스크
+           out="/tmp/vcf-aiops-support-$(date +%Y%m%d-%H%M%S).tgz"; d="$(mktemp -d)"
+           systemctl --no-pager status "$SVC" > "$d/status.txt" 2>&1
+           journalctl -u "$SVC" -n 3000 --no-pager > "$d/journal.txt" 2>&1
+           journalctl -u vcf-aiops-provision-early -u vcf-aiops-provision -b --no-pager > "$d/provision.txt" 2>/dev/null || true
+           sed -E 's/((password|api_key|token|secret|communit|key)[^:]*:).*/\1 ********/I' "$ETC/config.yaml" > "$d/config.redacted.yaml"
+           curl -sk --max-time 3 "$(url)/readyz" > "$d/readyz.json" 2>&1
+           ss -lntup > "$d/ports.txt" 2>&1; df -h > "$d/df.txt"; free -m > "$d/mem.txt"; uptime > "$d/uptime.txt"
+           tar czf "$out" -C "$d" . && rm -rf "$d" && echo "지원 번들: $out" ;;
+  reset-admin)  # 웹 콘솔 로컬 관리자 비밀번호 긴급 재설정: vcf-aiopsctl reset-admin [사용자] [--generate]
+           shift; [[ $EUID -eq 0 ]] || { echo "sudo 로 실행하세요: sudo vcf-aiopsctl reset-admin $*"; exit 1; }
+           echo "서비스를 잠시 중지합니다(감사 로그 체인 보존·기존 세션 종료)…"
+           systemctl stop "$SVC"
+           ( cd "$PREFIX" && sudo -u aiops env AIOPS_CONFIG="$ETC/config.yaml" AIOPS_ENV_FILE="$ETC/.env" \
+               AIOPS_SECRET_KEY_FILE="$ETC/secret.key" AIOPS_WORKDIR="$DATA" \
+               "$PREFIX/venv/bin/python" -m app.security.reset_admin --force "$@" ); rc=$?
+           systemctl start "$SVC"
+           for i in $(seq 1 45); do curl -fsk --max-time 2 "$(url)/readyz" >/dev/null 2>&1 && { echo "서비스 재기동 완료"; break; }; sleep 2; done
+           exit $rc ;;
+  ovf)     # 어플라이언스: 배포 시 입력한 vApp 속성(비밀값 가림)과 프로비저닝 상태
+           sudo /usr/bin/python3 "$PREFIX/appliance/provision.py" show ;;
+  pause|resume|pause-status)   # (2.22.1) 수집 일시정지: vcf-aiopsctl pause [분] [--all|--syslog] [--sender IP|호스트 ...] [--reason 글] | resume | pause-status
+           cmd="$1"; shift
+           if [[ "$cmd" == pause-status ]]; then
+             journalctl -u "$SVC" --no-pager -n 400 | grep -E '\[ingest-gate\]|수집 (일시정지|재개)' | tail -10 || echo "기록 없음"; exit 0
+           fi
+           [[ $EUID -eq 0 ]] || { echo "sudo 로 실행하세요"; exit 1; }
+           ddir="$(dirname "$(sed -n 's/^ *db_path: *//p' "$ETC/config.yaml" 2>/dev/null | head -1)")"; [[ "$ddir" == "." || -z "$ddir" ]] && ddir="$DATA"
+           if [[ "$cmd" == resume ]]; then
+             printf '{"action":"resume"}\n' > "$ddir/ingest-control.json"
+           else
+             mins=""; scope="syslog"; senders=(); reason="콘솔 명령"
+             while [[ $# -gt 0 ]]; do case "$1" in
+               --all) scope=all; shift ;; --syslog) scope=syslog; shift ;;
+               --sender) [[ "${2:-}" =~ ^[A-Za-z0-9._:/-]+$ ]] || { echo "--sender 값 오류"; exit 1; }; senders+=("\"$2\""); shift 2 ;;
+               --reason) reason="$(printf '%s' "${2:-}" | tr -d '"\\' | cut -c1-200)"; shift 2 ;;
+               [0-9]*) mins="$1"; shift ;;
+               *) echo "알 수 없는 옵션 $1"; exit 1 ;; esac; done
+             printf '{"action":"pause","minutes":%s,"scope":"%s","senders":[%s],"reason":"%s"}\n' "${mins:-null}" "$scope" "$(IFS=,; echo "${senders[*]}")" "$reason" > "$ddir/ingest-control.json"
+           fi
+           chown aiops:aiops "$ddir/ingest-control.json" 2>/dev/null; chmod 0660 "$ddir/ingest-control.json"
+           echo "요청 기록 — 5초 안에 적용됩니다(sudo vcf-aiopsctl pause-status)" ;;
+  tunnel)  # (2.21.2) Cloudflare Tunnel 연동: vcf-aiopsctl tunnel --api-token [--access-allow @corp.com] [--waf-ratelimit] | --status | --uninstall
+           shift; [[ $EUID -eq 0 ]] || { echo "sudo 로 실행하세요"; exit 1; }
+           exec bash "$PREFIX/scripts/linux/cloudflare-tunnel.sh" "$@" ;;
+  provision-log) journalctl -u vcf-aiops-provision-early -u vcf-aiops-provision -b --no-pager ;;
+
+  patch)   # 패치 적용: 설치된 신뢰 키로 서명 확인 + manifest 해시 확인 → 번들의 apply.sh 실행(백업·교체·상태 확인·실패 시 자동 롤백)
+           shift; _need_root "patch $*"
+           f="${1:-}"; shift || true
+           [[ -f "$f" ]] || { echo "사용: sudo vcf-aiopsctl patch vcf-aiops-patch-<버전>.tgz [--yes]"; exit 1; }
+           _patch_run "$f" "" 1 "$@" ;;
+  _verify-bundle)   # (내부·시험) 검증만: 서명 + manifest 해시 → 검증된 사본 폴더를 출력. 적용하지 않음 — 호출자가 그 폴더(상위 vcf-aiops-bundle.*)를 지울 것
+           _bundle_verify "${2:-}" || exit 1
+           echo "$VD" ;;
+  trust-key) shift; _trust_key "$@" ;;
+  patch-request)   # 웹 콘솔 요청(vcf-aiops-patch.path → root oneshot): request.json = {"action":"apply","file":...,"force":bool} | {"action":"rollback","file":백업명}
+           [[ $EUID -eq 0 ]] || exit 1
+           rq="$DATA/patches/request.json"; [[ -e "$rq" || -L "$rq" ]] || exit 0
+           out="$(_py req "$rq" "$DATA" 2>&1)"; rc=$?
+           rm -f -- "${rq:?}"                           # 먼저 지움 — 남아 있으면 path 유닛이 계속 다시 부른다
+           mapfile -t RQ <<<"$out"
+           [[ $rc -eq 0 && ${#RQ[@]} -eq 4 ]] || { echo "요청 거부: $out"; _pstatus failed "요청 형식 오류 — 거부" "$(_cur)" ""; exit 1; }
+           act="${RQ[0]}"; fil="${RQ[1]}"; export AIOPS_PATCH_BY="web:${RQ[2]}"; force="${RQ[3]}"
+           case "$act" in
+             apply)    _patch_run "$fil" aiops "$force" --yes; rc=$?
+                       runuser -u "$USR" -- rm -f -- "${fil:?}" 2>/dev/null   # 업로드 파일 정리는 서비스 계정 권한으로(root 가 aiops 쓰기 폴더에서 지우지 않음)
+                       exit $rc ;;
+             rollback) _rollback "$fil" ;;
+           esac ;;
+  rollback) shift; _need_root "rollback $*"
+           if [[ "${1:-}" == "--list" ]]; then ls -1t "$DATA/patches/backup" 2>/dev/null | grep '^vcf-aiops-' | while read -r b; do
+               echo "$b  $(du -sh "$DATA/patches/backup/$b" | cut -f1)  $(_py bk "$BKIDX" "$b" >/dev/null 2>&1 && echo 색인됨 || echo '색인 없음(--no-verify 필요)')"; done; exit 0; fi
+           nodb=0; nover=0; name=""; for a in "$@"; do case "$a" in --no-db) nodb=1 ;; --no-verify) nover=1 ;; *) name="$a" ;; esac; done
+           NODB=$nodb NOVERIFY=$nover _rollback "$name" ;;
+  patch-history) H="$DATA/patches/history.jsonl"; [[ -r "$RS/history.jsonl" ]] && H="$RS/history.jsonl"     # root 전용 원본 우선(2.36.0)
+           [[ -e "$H" && ! -r "$H" ]] && { echo "권한 없음 — sudo vcf-aiopsctl patch-history"; exit 1; }
+           [[ "$H" == "$RS/history.jsonl" ]] && echo "(root 전용 원본 기록)" || { [[ $EUID -ne 0 ]] && echo "(공개 사본 — 원본은 sudo vcf-aiopsctl patch-history)"; }
+           tail -n "${2:-20}" "$H" 2>/dev/null || echo "패치 기록 없음"
+           [[ -f "$DATA/patches/status.json" ]] && { echo "현재 상태:"; cat "$DATA/patches/status.json"; } ;;
+  *) echo "사용: vcf-aiopsctl status|logs [N]|health|restart|stop|start|backup|config|ports|version|support|ovf|provision-log|reset-admin|tunnel|pause [분] [--sender IP]|resume|patch <번들>|rollback|patch-history|trust-key list|add|remove"; exit 1 ;;
+esac

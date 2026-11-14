@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>로그인 · VCF AIops</title>
+<script src="/static/i18n-en.js"></script>
+<script src="/static/i18n.js"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="login-body">
+<div class="login-wrap">
+  <section class="login-card">
+    <div class="login-brand">
+      <svg class="logo" viewBox="0 0 36 36" aria-hidden="true"><path d="M18 3 31 10.5v15L18 33 5 25.5v-15Z" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M11 19.5l4.5 4.5L25 13" fill="none" stroke="#49afd9" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      <div><div class="t1">VMware Cloud Foundation</div><div class="t2">VCF AIops</div></div><span id="lang-slot"></span>
+    </div>
+
+    <div class="login-msg" id="msg" hidden></div>
+
+    <form id="f-login" autocomplete="on" novalidate>
+      <label>아이디<input id="u" name="username" autocomplete="username" required autofocus></label>
+      <div class="hint" id="ldap-hint" hidden></div>
+      <label>비밀번호<input id="p" name="password" type="password" autocomplete="current-password" required></label>
+      <div class="caps" id="caps" hidden>Caps Lock이 켜져 있습니다</div>
+      <button class="btn-login" id="b-login">로그인</button>
+      <button type="button" class="btn-login btn-sso" id="b-sso" hidden>SSO 로그인</button>
+      <details class="forgot"><summary>비밀번호를 잊었나요?</summary>
+        <p>시스템 관리자에게 비밀번호 초기화를 요청하세요.</p></details>
+    </form>
+
+    <form id="f-mfa" hidden novalidate>
+      <h2>2단계 인증</h2>
+      <p class="sub">인증 앱(Google Authenticator·Microsoft Authenticator 등)의 6자리 코드 또는 복구 코드를 입력하세요.</p>
+      <label>인증 코드<input id="mfa-code" inputmode="numeric" autocomplete="one-time-code" placeholder="123456 또는 복구 코드" required></label>
+      <button class="btn-login" id="b-mfa">확인</button>
+      <p class="sub"><a href="/login" id="mfa-back">처음부터 다시 로그인</a></p>
+    </form>
+
+    <form id="f-change" hidden novalidate>
+      <h2>비밀번호 변경</h2>
+      <p class="sub" id="change-why">최초 로그인 또는 비밀번호 만료로 변경이 필요합니다.</p>
+      <label id="old-wrap">현재 비밀번호<input id="old" type="password" autocomplete="current-password"></label>
+      <label>새 비밀번호<input id="n1" type="password" autocomplete="new-password" required></label>
+      <label>새 비밀번호 확인<input id="n2" type="password" autocomplete="new-password" required></label>
+      <ul class="policy" id="policy">
+        <li data-r="len">9자 이상</li><li data-r="cls">영문 대·소문자·숫자·특수문자 중 3종 이상</li>
+        <li data-r="user">아이디 포함 금지</li><li data-r="rep">같은 문자 3회 연속·연속 문자열(abcd, 1234) 금지</li>
+        <li data-r="eq">확인 값 일치</li>
+      </ul>
+      <button class="btn-login" id="b-change">변경 후 계속</button>
+    </form>
+
+    <div class="login-banner" id="banner" hidden></div>
+  </section>
+  <footer class="login-foot">인가된 사용자만 접근할 수 있으며 모든 접속·조작은 감사로그에 기록됩니다.</footer>
+</div>
+<script src="/static/login.js"></script>
+</body>
+</html>

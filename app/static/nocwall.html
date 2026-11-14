@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>관제 월 · VCF AIops</title>
+<script src="/static/i18n-en.js"></script>
+<script src="/static/i18n.js"></script>
+<link rel="stylesheet" href="/static/noc.css">
+<link rel="stylesheet" href="/static/nocwall.css">
+</head>
+<body class="noc wall">
+<header class="nbar">
+  <div class="nbrand">
+    <svg class="logo" viewBox="0 0 36 36" aria-hidden="true"><path d="M18 3 31 10.5v15L18 33 5 25.5v-15Z" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M11 19.5l4.5 4.5L25 13" fill="none" stroke="#4fb3e0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><b id="w-title">VCF 통합 관제</b><span id="n-live" class="live off" title="실시간 연결 상태">연결 중</span><span class="w-sub" id="w-sub"></span></div>
+  </div>
+  <div class="w-pulse" id="w-pulse" aria-live="polite"></div>
+  <div class="nclock"><b id="n-time">--:--:--</b><span id="n-date"></span></div>
+  <div class="nctl">
+    <button id="n-sound" aria-pressed="false">소리 켜기</button>
+    <button id="n-full">전체 화면</button>
+    <a href="/" id="n-console">운영 콘솔</a>
+    <span id="lang-slot"></span>
+  </div>
+</header>
+<nav class="npages" id="n-pages" aria-label="관제 페이지"></nav>
+<div class="nconn" id="n-conn" role="alert" hidden></div>
+
+<main class="wall-main">
+  <section class="wpage" id="pg-infra" hidden aria-label="인프라 지도"></section>
+  <section class="wpage" id="pg-topology" hidden aria-label="물리·논리 토폴로지"></section>
+  <section class="wpage" id="pg-events" hidden aria-label="이벤트·인시던트"></section>
+  <section class="wpage" id="pg-security" hidden aria-label="보안"></section>
+  <section class="wpage" id="pg-ai" hidden aria-label="AI·플랫폼"></section>
+  <section class="wpage" id="pg-network" hidden aria-label="네트워크 구성도"></section>
+  <section class="wpage" id="pg-exec" hidden aria-label="경영진 요약"></section>
+  <section class="wpage" id="pg-domain" hidden aria-label="도메인 상세"></section>
+</main>
+<div class="fly-layer" id="fly" aria-hidden="true"></div>
+<div class="toasts" id="toasts"></div>
+<script src="/static/core.js"></script>
+<script src="/static/nocnav.js"></script>
+<script src="/static/nocstack.js"></script>
+<script src="/static/nocdomain.js"></script>
+<script src="/static/nocexec.js"></script>
+<script src="/static/nocnet.js"></script>
+<script src="/static/nocwall.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# VKS(vSphere Kubernetes Service) RAG 팩 — Supervisor·워크로드 클러스터 장애 대응
+#   python -m app.rag.builder build ragpacks/vks.yaml
+id: vks
+name: VKS · Supervisor · Kubernetes 지식 팩
+product: vks                          # applies_to 프리셋: vks, vks-supervisor, vcenter
+version: "2026.10"
+description: VKS/Supervisor 취약점(NVD) + Broadcom KB + 운영 가이드(로그 전달, 인증서, etcd, CNI/CSI 트러블슈팅)
+output: dist/vks.ragpack
+chunk_size: 1400
+chunk_overlap: 200
+sources:
+  - type: nvd
+    keywords: ["vSphere Kubernetes", "Tanzu Kubernetes Grid", "vSphere with Tanzu"]
+    cpe_filter: ["vmware:tanzu", "vmware:vsphere_kubernetes", "vmware:vsphere_with_tanzu"]
+    since: "2020-01-01"
+  - type: kb
+    ids_file: ragpacks/sources/vks_kb_ids.txt
+    delay: 1.5
+  - type: local                       # 사내 런북·장애 보고서(PDF/MD/HTML)를 이 폴더에
+    path: ragpacks/sources/vks
+    glob: "**/*"
+    doc_type: guide

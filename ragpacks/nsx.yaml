@@ -1,0 +1,15 @@
+id: nsx
+name: NSX 지식 팩
+product: nsx
+version: "2026.10"
+description: NSX 취약점(NVD) + KB + 운영 가이드
+output: dist/nsx.ragpack
+sources:
+  - type: nvd
+    keywords: ["VMware NSX"]
+    cpe_filter: ["vmware:nsx"]
+    since: "2019-01-01"
+  - type: kb
+    ids_file: ragpacks/sources/nsx_kb_ids.txt
+  - type: local
+    path: ragpacks/sources/nsx

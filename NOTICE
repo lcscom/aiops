@@ -1,0 +1,16 @@
+VCF AIops
+Copyright 2026 The VCF AIops Authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+This product includes third-party software under their own licenses, listed in
+THIRD_PARTY_NOTICES.md with full license texts in THIRD_PARTY_LICENSES.txt, including:
+  - govc (VMware govmomi), Apache License 2.0 — https://github.com/vmware/govmomi
+  - WinSW, MIT License — https://github.com/winsw/winsw
+  - Pretendard font, SIL Open Font License 1.1 — https://github.com/orioncactus/pretendard
+  - Python packages listed in requirements.txt and their dependencies
+
+This product uses the NVD API but is not endorsed or certified by the NVD.
+
+VMware, VMware Cloud Foundation, vSphere, NSX and Avi are trademarks of Broadcom Inc.
+This project is not an official Broadcom or VMware product.

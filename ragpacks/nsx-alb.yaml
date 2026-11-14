@@ -1,0 +1,17 @@
+# NSX Advanced Load Balancer(Avi) RAG 팩
+id: nsx-alb
+name: NSX ALB(Avi) 지식 팩
+product: nsx-alb                      # applies_to 프리셋: avi
+version: "2026.10"
+description: Avi 취약점(NVD) + KB + 이벤트/알람 대응 가이드(VS/Pool/SE/Controller/GSLB/WAF)
+output: dist/nsx-alb.ragpack
+sources:
+  - type: nvd
+    keywords: ["Avi Load Balancer", "NSX Advanced Load Balancer", "Avi Vantage"]
+    cpe_filter: ["vmware:avi", "vmware:nsx_advanced_load_balancer"]
+    since: "2019-01-01"
+  - type: kb
+    ids_file: ragpacks/sources/nsx-alb_kb_ids.txt
+  - type: local
+    path: ragpacks/sources/nsx-alb
+    doc_type: guide

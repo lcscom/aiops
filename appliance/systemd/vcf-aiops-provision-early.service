@@ -1,0 +1,20 @@
+[Unit]
+Description=VCF AIops appliance provisioning (early: hostname, network, disks)
+Documentation=file:///opt/vcf-aiops/docs/OVA.md
+DefaultDependencies=no
+After=local-fs.target systemd-remount-fs.service systemd-udev-trigger.service
+Wants=network-pre.target
+Before=network-pre.target systemd-networkd.service sysinit.target shutdown.target
+Conflicts=shutdown.target
+ConditionPathExists=/opt/vcf-aiops/appliance/provision.py
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 -I /opt/vcf-aiops/appliance/provision.py early
+TimeoutStartSec=300
+# 한 단계가 실패해도 부팅은 계속(원인은 journalctl -u vcf-aiops-provision-early)
+SuccessExitStatus=1
+
+[Install]
+WantedBy=sysinit.target

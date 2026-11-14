@@ -1,0 +1,396 @@
+{
+ "source": "Broadcom Compatibility Guide — CPU Series export (07-22-2026), distributed in vmware/vcf-readiness hcl/ (CA, Inc. license)",
+ "note": "Positive list only: a CPUID absent here is \"BCG 확인 필요\", not automatically unsupported. Replace via 화면 > BCG CPU CSV 가져오기.",
+ "series": [
+  {
+   "series": "AMD EPYC 7001 Series",
+   "cores_threads": "32c/64t",
+   "cpuids": [
+    "0x00800f10"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "AMD EPYC 7002/7Fx2/7Hx2 Series",
+   "cores_threads": "64c/128t",
+   "cpuids": [
+    "0x00830f10"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "AMD EPYC 7003/7003X Series",
+   "cores_threads": "64C/128T",
+   "cpuids": [
+    "0x00a00f11",
+    "0x00a00f12"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "AMD EPYC 8004 Series",
+   "cores_threads": "64c/128t",
+   "cpuids": [
+    "0x00a10f11",
+    "0x00aa0f02"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "AMD EPYC 9004 Series",
+   "cores_threads": "128c/256t",
+   "cpuids": [
+    "0x00a10f11",
+    "0x00a10f12",
+    "0x00aa0f02"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "AMD EPYC 9005 Series",
+   "cores_threads": "192c/384t",
+   "cpuids": [
+    "0x00b00f21",
+    "0x00b10f10"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "AMD Ryzen Embedded V1000 Series",
+   "cores_threads": "4c/8t",
+   "cpuids": [
+    "0x00810f10"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Atom C3000 Series",
+   "cores_threads": "16c/16t",
+   "cpuids": [
+    "0x000506f0"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Core i3/i5/i7-1100GRE Processor Series",
+   "cores_threads": "",
+   "cpuids": [
+    "0x000806c1",
+    "0x000806c2"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon 6500P/6700P (Granite Rapids-SP) Series",
+   "cores_threads": "86c/172t",
+   "cpuids": [
+    "0x000a06d1"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon 6700P 4-Socket (Granite Rapids-SP) Series",
+   "cores_threads": "-",
+   "cpuids": [
+    "0x000a06d1"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon 6900P (Granite Rapids-AP) Series",
+   "cores_threads": "",
+   "cpuids": [
+    "0x000a06d1"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon CPU Max 9400 (Sapphire-Rapids-HBM) Series",
+   "cores_threads": "56c/112t",
+   "cpuids": [
+    "0x000806f8"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon D-1700 (Ice-Lake-D) Series",
+   "cores_threads": "20c/40t",
+   "cpuids": [
+    "0x000606c1"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon D-2700 (Ice-Lake-D) Series",
+   "cores_threads": "20c/40t",
+   "cpuids": [
+    "0x000606c1"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon E-2100 Series",
+   "cores_threads": "6c/112t",
+   "cpuids": [
+    "0x000906ea",
+    "0x000906eb",
+    "0x000906ec"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon E-2200 (4 or 6-core) Series",
+   "cores_threads": "6c/12t",
+   "cpuids": [
+    "0x000906ea"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon E-2200 (8-core) Series",
+   "cores_threads": "8c/16t",
+   "cpuids": [
+    "0x000906ed"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon E-2300 Series",
+   "cores_threads": "8c/16t",
+   "cpuids": [
+    "0x000a0671"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon E-2400/Xeon 6300 Series",
+   "cores_threads": "12c/24t",
+   "cpuids": [
+    "0x000b0671"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Gold 6100/5100 Silver 4100 Bronze 3100 (Skylake-SP) Series",
+   "cores_threads": "28c/56t",
+   "cpuids": [
+    "0x00050654"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Gold 6200/5200 (Cascade-Lake-SP/Refresh) Series",
+   "cores_threads": "28c/56t",
+   "cpuids": [
+    "0x00050657"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Gold 6300/5300 (Cooper-Lake-SP) Series",
+   "cores_threads": "28c/56t",
+   "cpuids": [
+    "0x0005065b"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Gold 6300/5300 (Ice-Lake-SP) Series",
+   "cores_threads": "32c/64t",
+   "cpuids": [
+    "0x000606a6"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Gold 6400/5400 (Sapphire-Rapids-SP) Series",
+   "cores_threads": "60c/120t",
+   "cpuids": [
+    "0x000806f8"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Gold 6500/5500 (Emerald Rapids-SP) Series",
+   "cores_threads": "64c/128t",
+   "cpuids": [
+    "0x000c06f2"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Platinum 8100 (Skylake-SP) Series",
+   "cores_threads": "28c/56t",
+   "cpuids": [
+    "0x00050654"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Platinum 8200 (Cascade-Lake-SP) Series",
+   "cores_threads": "28c/56t",
+   "cpuids": [
+    "0x00050657"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Platinum 8300 (Cooper-Lake-SP) Series",
+   "cores_threads": "28c/56t",
+   "cpuids": [
+    "0x0005065b"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Platinum 8300 (Ice-Lake-SP) Series",
+   "cores_threads": "40c/80t",
+   "cpuids": [
+    "0x000606a6"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Platinum 8400 (Sapphire-Rapids-SP) Series",
+   "cores_threads": "60c/120t",
+   "cpuids": [
+    "0x000806f8"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Platinum 8500 (Emerald Rapids-SP) Series",
+   "cores_threads": "64c/128t",
+   "cpuids": [
+    "0x000c06f2"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Silver 4200 Bronze 3200 (Cascade-Lake-SP/Refresh) Series",
+   "cores_threads": "28c/56t",
+   "cpuids": [
+    "0x00050657"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Silver 4300 (Ice-Lake-SP) Series",
+   "cores_threads": "20c/32t",
+   "cpuids": [
+    "0x000606a6"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Silver 4400 Bronze 3400 (Sapphire-Rapids-SP) Series",
+   "cores_threads": "60c/120t",
+   "cpuids": [
+    "0x000806f8"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Silver 4500 Bronze 3500 (Emerald Rapids-SP) Series",
+   "cores_threads": "64c/128t",
+   "cpuids": [
+    "0x000c06f2"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon Silver 4500 Bronze 3500 (Sapphire-Rapids-EE LCC) Series",
+   "cores_threads": "60c/120t",
+   "cpuids": [
+    "0x000806f8"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  },
+  {
+   "series": "Intel Xeon W-11000 Processor Series",
+   "cores_threads": "8c/16t",
+   "cpuids": [
+    "0x000806c1",
+    "0x000806c2",
+    "0x000806d1"
+   ],
+   "releases": [
+    "ESXi 9.1"
+   ]
+  }
+ ]
+}

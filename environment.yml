@@ -1,0 +1,12 @@
+# conda 환경 정의 — Windows Server / Linux 공용
+#   conda env create -f environment.yml          (최초)
+#   conda env update -f environment.yml --prune  (갱신)
+name: vcf-aiops
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - numpy>=1.26
+  - pip:
+      - -r requirements.txt

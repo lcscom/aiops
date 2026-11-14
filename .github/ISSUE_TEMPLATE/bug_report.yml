@@ -1,0 +1,41 @@
+name: 버그 신고
+description: 수집·탐지·화면·패치 등에서 기대와 다르게 동작하는 경우
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        비밀번호·API 토큰·내부 IP·고객 장비 이름은 지우고 올려 주세요. 보안 취약점은 이슈 대신 SECURITY.md 의 절차를 따릅니다.
+  - type: input
+    id: version
+    attributes:
+      label: 버전
+      description: 웹 콘솔 › 시스템·패치 또는 `vcf-aiopsctl version`
+      placeholder: "1.11.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: deploy
+    attributes:
+      label: 배포 형태
+      options: [OVA 어플라이언스, Ubuntu 직접 설치, Windows Server, Docker]
+    validations:
+      required: true
+  - type: input
+    id: target
+    attributes:
+      label: 관련 장비·버전
+      description: 예) vCenter 9.1.1, NSX 9.0.1, Avi 31.1.2
+  - type: textarea
+    id: what
+    attributes:
+      label: 증상
+      description: 무엇을 했고, 무엇을 기대했고, 실제로 무엇이 보였는지
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 점검·로그
+      description: 커넥터 점검 항목(예 '이벤트 해석'), `vcf-aiopsctl logs 200` 발췌
+      render: text

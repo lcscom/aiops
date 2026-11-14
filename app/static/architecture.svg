@@ -1,0 +1,253 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 1110" font-family="Calibri, 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif">
+  <title>VCF AIops 구성도</title>
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#0072a3"/>
+    </marker>
+    <marker id="arg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#3c8500"/>
+    </marker>
+    <marker id="aro" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#c25400"/>
+    </marker>
+    <marker id="arp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#5b2d90"/>
+    </marker>
+    <style>
+      .zone{fill:#fafafa;stroke:#dcdcdc;stroke-width:1.2}
+      .zt{font-size:15px;font-weight:700;fill:#313131}
+      .zs{font-size:11.5px;fill:#8c8c8c}
+      .box{fill:#fff;stroke:#b3b3b3;stroke-width:1}
+      .bt{font-size:13.5px;font-weight:600;fill:#313131}
+      .bs{font-size:11.5px;fill:#565656}
+      .eng{fill:#e3f5fc;stroke:#0072a3;stroke-width:1.4}
+      .ai{fill:#eaf6dc;stroke:#3c8500;stroke-width:1.4}
+      .rag{fill:#fff7e8;stroke:#c25400;stroke-width:1.4}
+      .ln{stroke:#0072a3;stroke-width:1.6;fill:none;marker-end:url(#ar)}
+      .lg{stroke:#3c8500;stroke-width:1.6;fill:none;marker-end:url(#arg)}
+      .lo{stroke:#c25400;stroke-width:1.6;fill:none;marker-end:url(#aro)}
+      .pl{stroke:#0072a3;stroke-width:1.6;fill:none}
+      .ld{stroke:#8c8c8c;stroke-width:1.2;fill:none;stroke-dasharray:4 3;marker-end:url(#ar)}
+      .lab{font-size:11px;fill:#0072a3;font-weight:600}
+      .labo{font-size:11px;fill:#c25400;font-weight:600}
+      .labg{font-size:11px;fill:#3c8500;font-weight:600}
+      .pill{fill:#fff;stroke:#0072a3;stroke-width:1}
+      .pt{font-size:11px;fill:#0072a3;font-weight:600}
+      .on{fill:#3c8500}.off{fill:#b3b3b3}
+      .ent{fill:#f3eefa;stroke:#5b2d90;stroke-width:1.4}
+      .et{font-size:13.5px;font-weight:700;fill:#43206b}
+      .lp{stroke:#5b2d90;stroke-width:1.6;fill:none;stroke-dasharray:5 4;marker-end:url(#arp)}
+    </style>
+  </defs>
+
+  <!-- 헤더 -->
+  <rect width="1440" height="54" fill="#1b2a32"/>
+  <path d="M34 11 47 18.5v15L34 41 21 33.5v-15Z" fill="none" stroke="#fafafa" stroke-width="2.2"/>
+  <path d="M27.5 27l4 4L41 21" fill="none" stroke="#49afd9" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="58" y="33" font-size="18" font-weight="700" fill="#fafafa">VMware Cloud Foundation</text>
+  <text x="290" y="33" font-size="18" fill="#c8d6de">AIOps — 시스템 구성도</text>
+  <text x="1420" y="33" font-size="12" fill="#9fb0ba" text-anchor="end">수집 → 탐지 → RAG 근거 검색 → Gemma 4 31B 판정 → 알림 → 인시던트·RCA → 승인 조치</text>
+
+  <!-- ① 수집 대상 -->
+  <rect class="zone" x="20" y="74" width="250" height="806" rx="4"/>
+  <text class="zt" x="36" y="100">① 수집 대상</text>
+  <text class="zs" x="36" y="117">VCF 9.x 스택 · 하드웨어 · 게스트</text>
+  <g>
+    <rect class="box" x="36" y="132" width="218" height="46" rx="3"/><text class="bt" x="48" y="152">vCenter / ESXi</text><text class="bs" x="48" y="168">이벤트·알람·헬스 · syslog · SNMP</text>
+    <rect class="box" x="36" y="186" width="218" height="40" rx="3"/><text class="bt" x="48" y="204">SDDC Manager</text><text class="bs" x="48" y="219">작업(Task) 상태</text>
+    <rect class="box" x="36" y="234" width="218" height="40" rx="3"/><text class="bt" x="48" y="252">NSX Manager / Edge</text><text class="bs" x="48" y="267">알람·Edge 상태 · exporter syslog</text>
+    <rect class="box" x="36" y="282" width="218" height="40" rx="3"/><text class="bt" x="48" y="300">VCF Operations</text><text class="bs" x="48" y="315">활성 알림(Alerts)</text>
+    <rect class="box" x="36" y="330" width="218" height="40" rx="3"/><text class="bt" x="48" y="348">VCF Operations for logs</text><text class="bs" x="48" y="363">이벤트 증분 조회(:9543)</text>
+    <rect class="box" x="36" y="378" width="218" height="40" rx="3"/><text class="bt" x="48" y="396">VCF Automation</text><text class="bs" x="48" y="411">감사 이벤트·배포 상태</text>
+    <rect class="box" x="36" y="426" width="218" height="40" rx="3"/><text class="bt" x="48" y="444">SRM / Live Site Recovery</text><text class="bs" x="48" y="459">이슈·복구 계획·보호 그룹</text>
+    <rect class="box" x="36" y="474" width="218" height="40" rx="3"/><text class="bt" x="48" y="492">NSX ALB (Avi)</text><text class="bs" x="48" y="507">Alert · 이벤트 로그 · VS/SE 상태</text>
+    <rect class="box" x="36" y="522" width="218" height="40" rx="3"/><text class="bt" x="48" y="540">서버 BMC (iLO·iDRAC·XCC)</text><text class="bs" x="48" y="555">Redfish 로그 · SNMP 트랩</text>
+    <rect class="box" x="36" y="570" width="218" height="40" rx="3"/><text class="bt" x="48" y="588">네트워크 · 스토리지</text><text class="bs" x="48" y="603">SNMP 트랩 · syslog</text>
+    <rect class="box" x="36" y="618" width="218" height="40" rx="3"/><text class="bt" x="48" y="636">VM 게스트 (Linux/Windows)</text><text class="bs" x="48" y="651">rsyslog · Fluent Bit</text>
+    <rect class="box" x="36" y="666" width="218" height="52" rx="3" style="stroke:#1d6fd1"/><text class="bt" x="48" y="684">VKS Supervisor · 워크로드</text><text class="bs" x="48" y="699">K8s 이벤트·노드·파드·Cluster API</text><text class="bs" x="48" y="712">CP VM syslog · Fluent Bit</text>
+  </g>
+
+  <!-- ② 수집 계층 -->
+  <rect class="zone" x="300" y="74" width="230" height="806" rx="4"/>
+  <text class="zt" x="316" y="100">② 수집 계층</text>
+  <text class="zs" x="316" y="117">Pull · Push 동시 지원</text>
+  <rect class="box" x="316" y="140" width="198" height="200" rx="3"/>
+  <text class="bt" x="328" y="162">API 폴링 커넥터</text>
+  <text class="bs" x="328" y="182">• vSphere SOAP + REST</text>
+  <text class="bs" x="328" y="200">• SDDC · NSX · Ops · Logs</text>
+  <text class="bs" x="328" y="218">• VCFA · SRM · NSX ALB</text>
+  <text class="bs" x="328" y="236">• Redfish (BMC) · VKS(K8s watch)</text>
+  <text class="bs" x="328" y="258">세션 재인증 · 지수 백오프</text>
+  <text class="bs" x="328" y="276">(ID, 상태) 변화분만 송출</text>
+  <text class="bs" x="328" y="298">연결 테스트(엔드포인트별)</text>
+  <rect class="box" x="316" y="380" width="198" height="72" rx="3"/>
+  <text class="bt" x="328" y="402">Syslog 수신기</text>
+  <text class="bs" x="328" y="420">UDP·TCP 514 · TLS 6514 · RFC5424</text>
+  <text class="bs" x="328" y="438">앱·SD(comp)·호스트로 제품 분류</text>
+  <rect class="box" x="316" y="478" width="198" height="90" rx="3"/>
+  <text class="bt" x="328" y="500">SNMP 트랩 수신기</text>
+  <text class="bs" x="328" y="518">UDP 162 · v1 / v2c / v3(USM)</text>
+  <text class="bs" x="328" y="536">VMware VC/ENV/VMINFO MIB</text>
+  <text class="bs" x="328" y="554">벤더 enterprise 분류 · oid_map</text>
+  <rect class="box" x="316" y="596" width="198" height="56" rx="3"/>
+  <text class="bt" x="328" y="618">HTTP 수집</text>
+  <text class="bs" x="328" y="636">POST /api/ingest (토큰)</text>
+
+  <path class="pl" d="M254 155 H282 M254 206 H282 M254 254 H282 M254 302 H282 M254 350 H282 M254 398 H282 M254 446 H282 M254 494 H282 M254 542 H282 M282 155 V542"/>
+  <path class="ln" d="M282 240 H312"/>
+  <path class="ld" d="M254 590 H268 V556 H312"/>
+  <path class="ld" d="M254 638 H312"/>
+  <path class="pl" d="M254 690 H290 V542"/>
+  <path class="ld" d="M254 708 H272 V650 H300 V430 H312"/>
+  <text class="zs" x="36" y="744">── 실선: API 폴링(Pull) · watch</text>
+  <text class="zs" x="36" y="762">- - 점선: 푸시(syslog UDP/TCP/TLS · SNMP · HTTP)</text>
+  <text class="zs" x="36" y="780">전송 설정 점검·적용: ESXi·vCenter·NSX</text>
+
+  <!-- ③ AIOps 엔진 -->
+  <rect class="zone" x="560" y="74" width="420" height="806" rx="4"/>
+  <text class="zt" x="576" y="100">③ AIOps 엔진</text>
+  <text class="zs" x="576" y="117">FastAPI :8630 · 단일 프로세스 asyncio · SQLite(WAL) · Windows 서비스(WinSW)</text>
+  <rect class="eng" x="584" y="140" width="372" height="56" rx="3"/>
+  <text class="bt" x="600" y="162">정규화 (LogEvent)</text>
+  <text class="bs" x="600" y="180">source · host · entity · severity · kind · attrs</text>
+  <rect class="eng" x="584" y="226" width="372" height="96" rx="3"/>
+  <text class="bt" x="600" y="248">1차 탐지 (실시간 · 저비용)</text>
+  <text class="bs" x="600" y="268">• VCF 장애 시그니처 규칙 66종 (APD/PDL·PSOD·vSAN·HA·NSX·HW)</text>
+  <text class="bs" x="600" y="286">• 템플릿 마이닝 → 신규 로그 패턴</text>
+  <text class="bs" x="600" y="304">• 소스별 발생량 급증 (EWMA z-score)</text>
+  <rect class="eng" x="584" y="352" width="372" height="56" rx="3"/>
+  <text class="bt" x="600" y="374">이상징후 생성 · 지문 병합</text>
+  <text class="bs" x="600" y="392">score ≥ llm_threshold · 동일 지문 재발은 카운트</text>
+  <rect class="eng" x="584" y="438" width="372" height="96" rx="3"/>
+  <text class="bt" x="600" y="460">AI 판정 워커 (배치)</text>
+  <text class="bs" x="600" y="480">① 활성 RAG 팩 하이브리드 검색 (소스별 applies_to)</text>
+  <text class="bs" x="600" y="498">② 후보 + 직전 로그 + 근거 문서[R#] → Gemma 4 31B</text>
+  <text class="bs" x="600" y="516">③ JSON: 요약·원인·영향·조치·근거·신뢰도</text>
+  <rect class="eng" x="584" y="564" width="372" height="56" rx="3"/>
+  <text class="bt" x="600" y="586">알림 엔진</text>
+  <text class="bs" x="600" y="604">심각도 임계 · 지문 cooldown · LLM 확인 옵션</text>
+  <rect class="box" x="584" y="650" width="178" height="56" rx="3"/>
+  <text class="bt" x="596" y="672">SQLite 저장소</text>
+  <text class="bs" x="596" y="690">로그 · 이상징후 · 알림 이력</text>
+  <rect class="box" x="778" y="650" width="178" height="56" rx="3"/>
+  <text class="bt" x="790" y="672">REST · WebSocket API</text>
+  <text class="bs" x="790" y="690">/ws · /api/live · /api/rag/*</text>
+
+  <path class="pl" d="M514 240 H546 M514 416 H546 M514 523 H546 M514 624 H546"/>
+  <path class="ln" d="M546 624 V168 H580"/>
+  <path class="ln" d="M770 196 V222"/>
+  <path class="ln" d="M770 322 V348"/>
+  <path class="ln" d="M770 408 V434"/>
+  <path class="ln" d="M770 534 V560"/>
+  <path class="ld" d="M600 620 V646"/>
+
+  <!-- ④ Private AI -->
+  <rect class="zone" x="1010" y="74" width="410" height="246" rx="4"/>
+  <text class="zt" x="1026" y="100">④ VMware Private AI Services</text>
+  <text class="zs" x="1026" y="117">OpenAI 호환 엔드포인트 · VKS GPU 노드</text>
+  <rect class="ai" x="1030" y="134" width="370" height="70" rx="3"/>
+  <text class="bt" x="1046" y="158">Gemma 4 31B (google/gemma-4-31B-it)</text>
+  <text class="bs" x="1046" y="178">/v1/chat/completions · JSON 판정 · AI 질의 스트리밍</text>
+  <text class="bs" x="1046" y="195">/v1/models 헬스체크 60초</text>
+  <rect class="ai" x="1030" y="216" width="370" height="84" rx="3"/>
+  <text class="bt" x="1046" y="240">임베딩 모델 (BAAI/bge-m3)</text>
+  <text class="bs" x="1046" y="260">/v1/embeddings · 팩 임포트 시 재임베딩</text>
+  <text class="bs" x="1046" y="278">질의 벡터 캐시 · 비활성 시 BM25 단독</text>
+
+  <path class="lg" d="M956 470 H985 V170 H1026"/>
+  <path class="lg" d="M1215 398 V304"/>
+  <text class="labg" x="1222" y="330">질의·청크 임베딩</text>
+
+  <!-- ⑤ RAG 팩 -->
+  <rect class="zone" x="1010" y="340" width="410" height="380" rx="4"/>
+  <text class="zt" x="1026" y="366">⑤ 제품별 RAG 팩</text>
+  <text class="zs" x="1026" y="383">.ragpack 가져오기 → 활성화 시 메모리 인덱스 적재</text>
+  <rect class="rag" x="1030" y="398" width="370" height="40" rx="3"/>
+  <circle class="on" cx="1048" cy="418" r="6"/><text class="bt" x="1062" y="414">vSphere 팩</text>
+  <text class="bs" x="1062" y="430">ESXi·vCenter CVE/VMSA · KB · 가이드 → esxi, vcenter, snmp…</text>
+  <rect class="rag" x="1030" y="446" width="370" height="40" rx="3"/>
+  <circle class="on" cx="1048" cy="466" r="6"/><text class="bt" x="1062" y="462">NSX 팩</text>
+  <text class="bs" x="1062" y="478">NSX CVE · KB · 운영 가이드 → nsx</text>
+  <rect class="rag" x="1030" y="494" width="370" height="40" rx="3"/>
+  <circle class="off" cx="1048" cy="514" r="6"/><text class="bt" x="1062" y="510">Hardware 팩</text>
+  <text class="bs" x="1062" y="526">iLO IML · iDRAC SEL 메시지 가이드 → redfish, snmp</text>
+  <rect class="box" x="1030" y="546" width="370" height="58" rx="3"/>
+  <text class="bt" x="1046" y="568">하이브리드 검색</text>
+  <text class="bs" x="1046" y="586">Dense(코사인) × 0.6 + BM25 × 0.4 + 식별자 일치 가중</text>
+  <text class="bs" x="1046" y="600">(KB·CVE·VMSA·vob 코드)</text>
+  <rect class="box" x="1030" y="616" width="370" height="88" rx="3"/>
+  <text class="bt" x="1046" y="638">팩 빌더 CLI  (app.rag.builder)</text>
+  <text class="bs" x="1046" y="658">NVD CVE API 2.0 · Broadcom KB 번호 · URL 목록</text>
+  <text class="bs" x="1046" y="676">로컬 PDF/HTML/MD · pgvector export · JSONL</text>
+  <text class="bs" x="1046" y="694">청킹 → (선택) 임베딩 → manifest + chunks + vectors</text>
+
+  <path class="lo" d="M1030 575 H996 V500 H960"/>
+  <text class="labo" x="900" y="552">근거 문서 R#</text>
+
+  <!-- ⑥ 화면 · 알림 -->
+  <rect class="zone" x="560" y="740" width="860" height="140" rx="4"/>
+  <text class="zt" x="576" y="766">⑥ 화면 · 알림</text>
+  <rect class="box" x="584" y="780" width="250" height="84" rx="3"/>
+  <text class="bt" x="598" y="802">웹 대시보드 :8630 (HTTP/HTTPS)</text>
+  <text class="bs" x="598" y="822">WebSocket 실시간 푸시 · Clarity UI · gzip</text>
+  <text class="bs" x="598" y="840">로그 · 이상징후 · 커넥터 · RAG · AI 질의</text>
+  <rect class="box" x="850" y="780" width="250" height="84" rx="3"/>
+  <text class="bt" x="864" y="802">운영 API · 연동</text>
+  <text class="bs" x="864" y="822">REST /api/* · /ws · /healthz</text>
+  <text class="bs" x="864" y="840">OpenAPI 문서 /api/docs · IIS ARR 연동</text>
+  <rect class="box" x="1116" y="780" width="284" height="84" rx="3"/>
+  <text class="bt" x="1130" y="802">알림 채널</text>
+  <text class="bs" x="1130" y="822">화면 토스트 · 브라우저 알림 · Slack · Teams</text>
+  <text class="bs" x="1130" y="840">일반 웹훅(SMS 게이트웨이) · SMTP 메일</text>
+
+  <path class="ln" d="M867 706 V740 H709 V776"/>
+  <path class="ln" d="M867 706 V740 H975 V776"/>
+  <path class="ln" d="M956 600 H990 V730 H1258 V776"/>
+  <text class="lab" x="1100" y="726">알림 발송</text>
+
+  <!-- ⑦ 엔터프라이즈 운영 -->
+  <path class="lp" d="M867 880 V896"/>
+  <rect class="zone" x="20" y="900" width="1400" height="190" rx="4"/>
+  <text class="zt" x="36" y="926">⑦ 엔터프라이즈 운영</text>
+  <text class="zs" x="190" y="926">모든 화면·API 요청: 인증 미들웨어 → 역할 권한 판정 → 감사 기록 · 쓰기 조치는 승인 게이트 경유 (VMware-AIops 조사·조치 프로토콜 반영)</text>
+  <rect class="ent" x="36" y="942" width="216" height="134" rx="3"/>
+  <text class="et" x="48" y="964">인증 · 권한(RBAC)</text>
+  <text class="bs" x="48" y="986">AD/LDAP(LDAPS·중첩 그룹→역할)</text>
+  <text class="bs" x="48" y="1004">+ 비상용 로컬 관리자(PBKDF2)</text>
+  <text class="bs" x="48" y="1022">조회·감사·운영·관리 4역할</text>
+  <text class="bs" x="48" y="1040">유휴 10분·잠금·휴면·비번 정책</text>
+  <text class="bs" x="48" y="1058">CSRF·CSP·동일 출처 WebSocket</text>
+  <rect class="ent" x="266" y="942" width="216" height="134" rx="3"/>
+  <text class="et" x="278" y="964">감사로그</text>
+  <text class="bs" x="278" y="986">로그인·설정·조치·AI 질의 기록</text>
+  <text class="bs" x="278" y="1004">SHA-256 해시 체인 무결성 검증</text>
+  <text class="bs" x="278" y="1022">CSV 내보내기 · 5년 보존</text>
+  <text class="bs" x="278" y="1040">비밀값 자동 마스킹</text>
+  <rect class="ent" x="496" y="942" width="216" height="134" rx="3"/>
+  <text class="et" x="508" y="964">인시던트 · AI 근본원인</text>
+  <text class="bs" x="508" y="986">vCenter 토폴로지 상관(클러스터)</text>
+  <text class="bs" x="508" y="1004">상태·담당·SLA(접수/해결) 감시</text>
+  <text class="bs" x="508" y="1022">유지보수 창·vCenter MM·사일런스</text>
+  <text class="bs" x="508" y="1040">RCA: 인과 사슬 + 4대 완결성 기준</text>
+  <text class="bs" x="508" y="1058">근거 묶음(로그·이벤트·RAG)</text>
+  <rect class="ent" x="726" y="942" width="216" height="134" rx="3"/>
+  <text class="et" x="738" y="964">조치 게이트</text>
+  <text class="bs" x="738" y="986">미리보기: 영향 범위·차단 사유</text>
+  <text class="bs" x="738" y="1004">L3↑ 4-eyes 승인 · 환경 deny</text>
+  <text class="bs" x="738" y="1022">실행 직전 재측정 → 전/후 기록</text>
+  <text class="bs" x="738" y="1040">유지보수 모드·디스크 통합</text>
+  <text class="bs" x="738" y="1058">알람 확인·서비스 재시작</text>
+  <rect class="ent" x="956" y="942" width="216" height="134" rx="3"/>
+  <text class="et" x="968" y="964">운영 설정 · 비밀 암호화</text>
+  <text class="bs" x="968" y="986">화면 편집 → 즉시 반영(핫리로드)</text>
+  <text class="bs" x="968" y="1004">저장 전 연결 시험</text>
+  <text class="bs" x="968" y="1022">DPAPI(Windows)·Fernet 암호화</text>
+  <text class="bs" x="968" y="1040">파일 ACL: SYSTEM·관리자·서비스</text>
+  <text class="bs" x="968" y="1058">config.yaml 값 복원</text>
+  <rect class="ent" x="1186" y="942" width="216" height="134" rx="3"/>
+  <text class="et" x="1198" y="964">ITSM · 리포트 · 메트릭</text>
+  <text class="bs" x="1198" y="986">ServiceNow Table API · 웹훅</text>
+  <text class="bs" x="1198" y="1004">일간/주간 HTML 리포트+AI 요약</text>
+  <text class="bs" x="1198" y="1022">Prometheus /metrics · API 토큰</text>
+  <text class="bs" x="1198" y="1040">야간 SQLite 온라인 백업</text>
+</svg>

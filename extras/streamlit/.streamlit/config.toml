@@ -1,0 +1,17 @@
+[theme]
+base = "light"
+primaryColor = "#0072a3"
+backgroundColor = "#fafafa"
+secondaryBackgroundColor = "#eeeeee"
+textColor = "#313131"
+borderColor = "#dcdcdc"
+baseRadius = "small"
+
+[server]
+port = 8630
+address = "0.0.0.0"
+headless = true
+enableStaticServing = true
+
+[browser]
+gatherUsageStats = false

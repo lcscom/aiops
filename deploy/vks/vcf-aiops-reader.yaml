@@ -1,0 +1,65 @@
+# VCF AIops — VKS 워크로드 클러스터용 읽기 전용 ServiceAccount (kubectl apply -f 후 토큰을 커넥터 token 에 입력)
+#   kubectl -n vcf-aiops get secret vcf-aiops-reader-token -o jsonpath='{.data.token}' | base64 -d
+# 쓰기 권한 없음. configmaps·secrets 읽기 권한 없음(비밀값 미노출 — 구성도는 파드 spec 의 이름 참조만 표시). pods/log 는 문제 파드 로그 첨부·화면 로그 보기용(필요 없으면 아래 resources 목록에서 pods/log 를 빼면 됨).
+apiVersion: v1
+kind: Namespace
+metadata: {name: vcf-aiops}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: vcf-aiops-reader, namespace: vcf-aiops}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: vcf-aiops-reader}
+rules:
+- apiGroups: [""]
+  resources: [events, nodes, pods, pods/log, namespaces, services, endpoints, persistentvolumes, persistentvolumeclaims]
+  verbs: [get, list, watch]
+- apiGroups: [apps]                      # 2.9 구성도 — 워크로드
+  resources: [deployments, replicasets, statefulsets, daemonsets]
+  verbs: [get, list, watch]
+- apiGroups: [batch]
+  resources: [jobs, cronjobs]
+  verbs: [get, list, watch]
+- apiGroups: [networking.k8s.io]
+  resources: [ingresses, networkpolicies]
+  verbs: [get, list, watch]
+- apiGroups: [storage.k8s.io]
+  resources: [storageclasses]
+  verbs: [get, list, watch]
+- apiGroups: [autoscaling]
+  resources: [horizontalpodautoscalers]
+  verbs: [get, list, watch]
+- apiGroups: [vmoperator.vmware.com]     # Supervisor 에서만 의미 — VM Service VM
+  resources: [virtualmachines]
+  verbs: [get, list, watch]
+- apiGroups: [run.tanzu.vmware.com]      # Supervisor 에서만 의미 — TanzuKubernetesCluster
+  resources: [tanzukubernetesclusters]
+  verbs: [get, list, watch]
+- apiGroups: [events.k8s.io]
+  resources: [events]
+  verbs: [get, list, watch]
+- apiGroups: [cluster.x-k8s.io]          # Supervisor 에서만 의미(워크로드 클러스터에는 없음)
+  resources: [clusters, machines]
+  verbs: [get, list, watch]
+- apiGroups: [packaging.carvel.dev]      # 전송 설정 점검: Fluent Bit 패키지 설치 여부
+  resources: [packageinstalls]
+  verbs: [get, list]
+- nonResourceURLs: ["/readyz", "/readyz/*", "/version"]
+  verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata: {name: vcf-aiops-reader}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: vcf-aiops-reader}
+subjects:
+- {kind: ServiceAccount, name: vcf-aiops-reader, namespace: vcf-aiops}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: vcf-aiops-reader-token
+  namespace: vcf-aiops
+  annotations: {kubernetes.io/service-account.name: vcf-aiops-reader}
+type: kubernetes.io/service-account-token

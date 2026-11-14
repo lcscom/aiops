@@ -1,0 +1,15 @@
+{
+  "as_of": "2026-10-01",
+  "currency": "JPY",
+  "unit": "Bare Metal Node(1~2소켓·최대 128코어) 1대 · 1년 구독",
+  "src": "https://redhat.sios.jp/price_list",
+  "src_name": "SIOS Technology(Red Hat 파트너) Red Hat 표준 가격표 — 2026-10-01 갱신",
+  "rules_src": "https://www.redhat.com/rhdc/managed-files/cl-self-managed-openshift-subscription-guide-1591511pr-202501-en.pdf",
+  "note": "일본 표준가(엔, 세금 별도) 참고값입니다. 국내 계약가·할인율과 다르므로 견적 받은 값으로 바꾸세요.",
+  "editions": {
+    "ove": {"name": "OpenShift Virtualization Engine", "premium": {"sku": "MW05767", "price": 450000}, "standard": {"sku": "MW05768", "price": 300000}},
+    "oke": {"name": "OpenShift Kubernetes Engine", "premium": {"sku": "MW05525", "price": 1980000}, "standard": {"sku": "MW05526", "price": 1306800}},
+    "ocp": {"name": "OpenShift Container Platform", "premium": {"sku": "MW05472", "price": 5940000}, "standard": {"sku": "MW05473", "price": 3960000}},
+    "opp": {"name": "OpenShift Platform Plus", "premium": {"sku": "MW05543", "price": 7425000}, "standard": {"sku": "MW05544", "price": 4974800}}
+  }
+}

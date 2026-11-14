@@ -1,0 +1,17 @@
+# VCF Operations RAG 팩
+id: vcfops
+name: VCF Operations 지식 팩
+product: vcfops
+version: "2026.10"
+description: VCF Operations(Aria Operations) 취약점(NVD) + KB + 노드·어댑터·알림 대응 가이드
+output: dist/vcfops.ragpack
+sources:
+  - type: nvd
+    keywords: ["VMware Aria Operations", "vRealize Operations", "VCF Operations"]
+    cpe_filter: ["vmware:aria_operations", "vmware:vrealize_operations"]
+    since: "2019-01-01"
+  - type: kb
+    ids_file: ragpacks/sources/vcfops_kb_ids.txt
+  - type: local
+    path: ragpacks/sources/vcfops
+    doc_type: guide

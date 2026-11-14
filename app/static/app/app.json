@@ -1,0 +1,10 @@
+{
+ "package": "com.krvcf.vcfaiops",
+ "name": "2.48.0",
+ "code": 24800,
+ "size": 74690,
+ "sha256": "ea787ee8f9d0a9e8c31ab984c637ab9a34b22cf90a0010a188be86c127a02277",
+ "cert_sha256": "987bf65a91dc60265898cb05da108e53a81a94486c684d4226107979a08e15a5",
+ "min_android": "8.0",
+ "built": "2026-11-12"
+}

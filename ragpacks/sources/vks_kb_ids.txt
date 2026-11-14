@@ -1,0 +1,4 @@
+# 한 줄에 Broadcom KB 번호 하나(예: 318939). 비워두면 KB 소스는 건너뜀
+444592   # Unable to run kubectl commands on some VKS clusters due to "401 Unauthorized" error
+443970   # Unable to login to a Guest Cluster via kubectl vSphere login after STS Certificate renewal on vCenter
+439108   # Error while getting list of workloads

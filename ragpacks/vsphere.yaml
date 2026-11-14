@@ -1,0 +1,46 @@
+# vSphere RAG 팩 — ESXi 보안 취약점(CVE·VMSA) + vSphere/vCenter/ESXi KB + 사내 문서
+#   python -m app.rag.builder build ragpacks/vsphere.yaml
+id: vsphere
+name: vSphere · ESXi · vCenter 지식 팩
+product: vsphere                      # applies_to 미지정 시 프리셋: esxi, vcenter, vcfops, vcflogs, syslog, snmp
+version: "2026.10"
+description: ESXi·vCenter 보안 취약점(NVD CVE, VMSA 매핑), Broadcom KB, 운영 가이드
+output: dist/vsphere.ragpack
+chunk_size: 1400
+chunk_overlap: 200
+
+# 빌드 시 임베딩(선택). 생략하면 대시보드에서 import할 때 서버의 임베딩 엔드포인트로 생성
+embedding:
+  base_url: ${EMBED_BASE_URL:-http://192.168.111.201:8001/v1}
+  model: BAAI/bge-m3
+
+sources:
+  # 1) 보안 취약점 — NVD CVE API 2.0 (CVSS·CWE·VMSA 링크 포함). API 키 있으면 10배 빠름
+  - type: nvd
+    keywords: ["VMware ESXi", "VMware vCenter Server", "VMware vSphere"]
+    cpe_filter: ["vmware:esxi", "vmware:vcenter_server", "vmware:vsphere"]
+    since: "2019-01-01"
+    # api_key: <NVD API 키>
+
+  # 2) Broadcom KB — 문서 번호 목록(한 줄에 하나). 전체 KB를 넣으려면 보유 KB 덤프/pgvector에서 번호를 export
+  - type: kb
+    ids_file: ragpacks/sources/vsphere_kb_ids.txt
+    delay: 1.5
+
+  # 3) VMSA 원문, 릴리스노트, 하드닝 가이드 등 URL 목록
+  - type: urls
+    file: ragpacks/sources/vsphere_urls.txt
+    doc_type: vmsa
+
+  # 4) 로컬 문서 (PDF/HTML/MD) — 오프라인 환경에서 미리 받아둔 KB·가이드
+  - type: local
+    path: ragpacks/sources/vsphere
+    glob: "**/*"
+    doc_type: guide
+
+  # 5) 기존 RAG DB(vmware_rag_v2 등)에서 export — 컬럼명을 title,url,text,type,published 로 맞춰 조회
+  # - type: pgvector
+  #   dsn: postgresql://user:pass@192.168.111.202:5432/vmware_rag_v2
+  #   sql: >
+  #     select title, url, content as text, 'kb' as type, published
+  #     from documents where product in ('vsphere','esxi','vcenter')

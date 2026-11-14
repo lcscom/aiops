@@ -1,0 +1,21 @@
+services:
+  aiops:
+    build: .
+    container_name: vcf-aiops
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8630:8630"          # 웹 대시보드 + API
+      - "514:514/udp"        # syslog
+      - "514:514/tcp"
+      - "6514:6514/tcp"      # syslog over TLS(certs 마운트 시)
+      - "162:162/udp"        # SNMP 트랩
+    volumes:
+      - ./config.yaml:/opt/aiops/config.yaml:ro
+      - ./data:/opt/aiops/data
+      - ./certs:/opt/aiops/certs:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,ssl;urllib.request.urlopen('http://127.0.0.1:8630/healthz',timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

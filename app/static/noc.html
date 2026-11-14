@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>통합 관제 · VCF AIops</title>
+<script src="/static/i18n-en.js"></script>
+<script src="/static/i18n.js"></script>
+<link rel="stylesheet" href="/static/noc.css">
+<link rel="stylesheet" href="/static/nocwall.css">
+</head>
+<body class="noc">
+<header class="nbar">
+  <div class="nbrand">
+    <svg class="logo" viewBox="0 0 36 36" aria-hidden="true"><path d="M18 3 31 10.5v15L18 33 5 25.5v-15Z" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M11 19.5l4.5 4.5L25 13" fill="none" stroke="#4fb3e0" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div><b>VCF 통합 관제</b><span id="n-live" class="live off" title="실시간 연결 상태">연결 중</span><button id="n-plat" class="plat ok" title="플랫폼(수집·처리·저장·알림) 상태">플랫폼 정상</button><button id="n-ai" class="plat ok" title="AI 분석 상태">AI</button></div>
+  </div>
+  <div class="nsum" id="n-sum" aria-live="polite"></div>
+  <div class="nclock"><b id="n-time">--:--:--</b><span id="n-date"></span></div>
+  <div class="nctl">
+    <label class="ntog"><input type="checkbox" id="n-open" checked><span>미확인만</span></label>
+    <button id="n-cycle" aria-pressed="false" title="이상 있는 슬롯을 20초마다 확대해 보여 줍니다">자동 순환</button>
+    <button id="n-zoom" aria-pressed="false" title="화면에서 끌어서 고른 영역만 크게 봅니다(Esc 해제)">영역 확대</button>
+    <button id="n-layout" title="패널 표시·열 수·순서 초기화(순서는 패널의 ⠿ 를 끌어서 변경)">레이아웃</button>
+    <button id="n-sound" aria-pressed="false">소리 켜기</button>
+    <button id="n-full">전체 화면</button>
+    <a href="/" id="n-console">운영 콘솔</a>
+    <span id="lang-slot"></span>
+  </div>
+</header>
+<nav class="npages" id="n-pages" aria-label="관제 페이지"></nav>
+
+<div class="zroot" id="n-zoomroot"><div class="zin">
+<section class="brief" id="n-brief" aria-live="polite">
+  <div class="bhead"><b>상황 브리핑</b><span id="n-brief-meta">준비 중</span><button id="n-brief-refresh" hidden>지금 갱신</button></div>
+  <div class="btext" id="n-brief-text">관제 데이터를 모으는 중입니다.</div>
+</section>
+
+<section class="nkpi" id="n-kpi" aria-label="관제 지표"></section>
+
+<section class="tline" aria-label="최근 60분 도메인별 이상 징후 타임라인">
+  <div class="tl-lanes" id="n-tl"></div>
+</section>
+
+<section class="river" id="n-river-box" aria-label="도메인별 실시간 이벤트 흐름(점 = 이벤트, 크기·색 = 심각도)"><canvas id="n-river"></canvas></section>
+
+<div class="nconn" id="n-conn" role="alert" hidden></div>
+<main class="ngrid" id="n-grid"></main></div></div>
+
+<div class="toasts" id="toasts"></div>
+<script src="/static/core.js"></script>
+<script src="/static/nocnav.js"></script>
+<script src="/static/noc.js"></script>
+</body>
+</html>

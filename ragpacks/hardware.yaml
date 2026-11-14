@@ -1,0 +1,9 @@
+id: hardware
+name: 서버 하드웨어(iLO·iDRAC·XCC) 지식 팩
+product: hardware                     # redfish, snmp, esxi 이벤트에 적용
+version: "2026.10"
+description: 벤더 IML/SEL 메시지 가이드, 펌웨어 권고, HCL 메모
+output: dist/hardware.ragpack
+sources:
+  - type: local
+    path: ragpacks/sources/hardware

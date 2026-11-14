@@ -1,0 +1,635 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<title>VCF AIops</title>
+<link rel="stylesheet" href="/static/style.css">
+<script src="/static/i18n-en.js"></script>
+<script src="/static/i18n.js"></script>
+</head>
+<body>
+<header class="hdr">
+  <div class="branding brand">
+    <svg class="logo" viewBox="0 0 36 36" aria-hidden="true"><path d="M18 3 31 10.5v15L18 33 5 25.5v-15Z" fill="none" stroke="currentColor" stroke-width="2.4"/><path d="M11 19.5l4.5 4.5L25 13" fill="none" stroke="#49afd9" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="title">VCF AIops</span>
+    <span class="dot" title="실시간 연결"></span>
+  </div>
+  <div class="hdr-actions">
+    <span id="lang-slot"></span>
+    <div class="hdr-llm" id="k-llm" title="AI 분석 — 눌러서 상태·패턴·공급자 보기">
+      <button type="button" class="ai-tgl" id="ai-toggle" role="switch" aria-checked="false" title="AI 분석 켜기/끄기 — 끄면 규칙 탐지만(GPU 사용 0)"><i></i></button>
+      <span class="lbl" id="k-llm-lbl">AI 분석</span><b id="k-llm-state">-</b><span id="k-llm-model"></span>
+    </div>
+    <button class="hdr-btn" id="btn-notify" title="브라우저 알림 허용">
+      <svg viewBox="0 0 36 36"><path d="M32.5 27.6 30.3 25V15.5A12.3 12.3 0 0 0 20 3.6V2h-4v1.6A12.3 12.3 0 0 0 5.8 15.5V25l-2.3 2.6V30h29Zm-15 6.4h1a3 3 0 0 0 3-3h-7a3 3 0 0 0 3 3Z" fill="currentColor"/></svg>
+    </button>
+    <button class="hdr-btn primary" id="btn-chat">AI 질의</button>
+    <div class="user-menu">
+      <button class="hdr-btn user-btn" id="btn-user" aria-haspopup="true">
+        <svg viewBox="0 0 36 36"><path d="M18 17a7 7 0 1 0 0-14 7 7 0 0 0 0 14Zm0 3c-6.6 0-12 3.6-12 8v4h24v-4c0-4.4-5.4-8-12-8Z" fill="currentColor"/></svg>
+        <span class="u"><b id="user-name">-</b><small id="user-role"></small></span>
+      </button>
+      <div class="user-pop" id="user-pop" hidden>
+        <div class="up-info" id="user-info"></div>
+        <button data-um="pw">비밀번호 변경</button>
+        <button data-um="logout">로그아웃</button>
+      </div>
+    </div>
+  </div>
+</header>
+<div class="ws-banner" id="ws-banner" role="status" hidden></div>
+
+<div class="shell">
+  <nav class="vnav">
+    <div class="vnav-h">관제</div>
+    <a class="on" data-nav="dash"><svg viewBox="0 0 36 36"><path d="M4 4h12v14H4zM20 4h12v8H20zM20 16h12v16H20zM4 22h12v10H4z" fill="currentColor"/></svg><span>실시간 대시보드</span></a>
+    <a href="/noc" target="_blank" rel="noopener" id="nav-noc" title="vCenter·NSX·NSX ALB·VKS 슬롯별 실시간 관제(새 창)"><svg viewBox="0 0 36 36"><path d="M3 5h30v20H3Zm3 3v14h11V8Zm13 0v6h11V8Zm0 8v6h11v-6ZM12 29h12v3H12Z" fill="currentColor"/></svg><span>통합 관제</span></a>
+    <a href="/noc/exec" target="_blank" rel="noopener" id="nav-exec" title="경영진 요약 — 30일 인시던트·SLA·MTTR, 가용성, vSAN, 용량 예측, 정산, 보안 판독(새 창)"><svg viewBox="0 0 36 36"><path d="M4 28h28v3H4Zm2-4 7-9 5 5 6-8 6 5v4H6Zm0-14h6v8H6Zm9 4h6v4h-6Zm9-7h6v11h-6Z" fill="currentColor"/></svg><span>경영진 요약</span></a>
+    <a data-nav="mhome" id="nav-mhome" title="한눈에 보기 — 인시던트·이상 징후·DR·백업·수집 연결·플랫폼 상태와 최근 알림(폰 첫 화면)"><svg viewBox="0 0 36 36"><path d="M4 5h13v11H4Zm15 0h13v7H19ZM4 19h13v12H4Zm15-4h13v16H19Z" fill="currentColor"/></svg><span>한눈에 보기</span></a>
+    <a data-nav="tour" id="nav-tour" title="기능 둘러보기 — 전체 기능을 영역별 타일로, 처음 보는 사람에게 설명하기 쉽게"><svg viewBox="0 0 36 36"><path d="M4 4h12v12H4zm16 0h12v12H20zM4 20h12v12H4zm16 0h12v12H20z" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M8 9h4M24 9h4M8 25h4M24 25h4" stroke="currentColor" stroke-width="2.6"/></svg><span>기능 둘러보기</span></a>
+    <a data-nav="inc" id="nav-inc"><svg viewBox="0 0 36 36"><path d="M18 2 3 8v9c0 8.3 6.4 15.6 15 17 8.6-1.4 15-8.7 15-17V8Zm-1.6 8h3.2v10h-3.2Zm1.6 16a2 2 0 1 1 0-4 2 2 0 0 1 0 4Z" fill="currentColor"/></svg><span>인시던트</span><b class="nav-badge" id="inc-badge" hidden></b></a>
+    <a data-nav="aiops" id="nav-aiops" title="AIOps 인사이트 — 인시던트의 근본 원인을 토폴로지로 추정하고 직전 변경을 찾음, 장애 전조 패턴 학습·조기 경보, 이상징후 소음/유용 표시로 탐지 학습, 소음 감소·MTTA·MTTR"><svg viewBox="0 0 36 36"><path d="M18 3a6 6 0 0 0-6 6v1.2A6 6 0 0 0 8 16a6 6 0 0 0 1.5 4A6 6 0 0 0 14 30h1.5V3.2A6 6 0 0 0 18 3Zm2.5.2V30H22a6 6 0 0 0 4.5-10 6 6 0 0 0 1.5-4 6 6 0 0 0-4-5.8V9a6 6 0 0 0-3.5-5.8Z" fill="currentColor"/></svg><span>AIOps 인사이트</span></a>
+    <a data-nav="sr" id="nav-sr" title="장애 근거를 모아 Broadcom·AWS·Azure SR 양식 보고서·이메일 초안·PDF·로그 묶음·공유 링크"><svg viewBox="0 0 36 36"><path d="M4 7h28v22H4Zm3 3v.6l11 7.2 11-7.2V10Zm0 4.2V26h22V14.2l-11 7.2Z" fill="currentColor"/></svg><span>지원 요청(SR)</span></a>
+    <a data-nav="mon" id="nav-mon" title="Datadog 방식 모니터 — 지표·로그 건수·무수신·커넥터·이상징후 임계 감시, 그룹별 알림·음소거"><svg viewBox="0 0 36 36"><path d="M4 6h28v20H4Zm3 3v14h22V9Zm1 10 5-6 4 4 4-7 5 9h-3l-2-3-4 7-4-4-3 4Zm2 11h16v3H10Z" fill="currentColor"/></svg><span>모니터</span><b class="nav-badge" id="mon-badge" hidden></b></a>
+    <a data-nav="tail" id="nav-tail" title="선택한 서버·VM 의 로그를 실시간으로 보기"><svg viewBox="0 0 36 36"><path d="M4 6h28v24H4Zm3 3v18h22V9Zm3 3h10v2.5H10Zm0 5h16v2.5H10Zm0 5h7v2.5h-7Z" fill="currentColor"/></svg><span>실시간 로그 보기</span></a>
+    <div class="vnav-h">인프라·워크로드</div>
+    <a href="/noc/network" target="_blank" rel="noopener" id="nav-netmap" title="Arista·Cisco 스위치 LLDP/CDP 로 그린 전체 네트워크 구성도(새 창)"><svg viewBox="0 0 36 36"><path d="M14 3h8v7h-2.5v4H30v6h2.5v7h-8v-7H27v-3H19.5v3H22v7h-8v-7h2.5v-3H9v3h2.5v7h-8v-7H6v-6h10.5v-4H14Z" fill="currentColor"/></svg><span>네트워크 구성도</span></a>
+    <a data-nav="inv" id="nav-inv" title="연결된 커넥터가 수집한 전체 개체 — VM·호스트·클러스터·데이터스토어·네트워크·NSX·NSX ALB·VKS·서버·에이전트"><svg viewBox="0 0 36 36"><path d="M4 5h28v6H4Zm0 10h28v6H4Zm0 10h28v6H4Zm3-17h3v-1H7Zm0 10h3v-1H7Zm0 10h3v-1H7Z" fill="currentColor"/></svg><span>인벤토리</span></a>
+    <a data-nav="arch" id="nav-arch"><svg viewBox="0 0 36 36"><path d="M3 4h12v9H3Zm18 0h12v9H21ZM12 23h12v9H12ZM8 13h2v4h16v-4h2v6H19v4h-2v-4H8Z" fill="currentColor"/></svg><span>토폴로지</span></a>
+    <a data-nav="mv" id="nav-mv" title="VM 액티비티 — VM 생성·복제·삭제·이름 변경, vMotion·DRS·Storage vMotion·HA 재시작/실패·호스트 장애 이력과 발생 중 알람"><svg viewBox="0 0 36 36"><path d="M3 8h12v9H3Zm18 11h12v9H21ZM9 19v6h8v-3l5 4.5-5 4.5v-3H6V19Zm18-2v-6h-8v3l-5-4.5L19 5v3h11v9Z" fill="currentColor"/></svg><span>VM 액티비티</span><b class="nav-badge" id="mv-badge" hidden></b></a>
+    <a data-nav="hd" id="nav-hd" title="호스트 분석 — ESXi 연결 끊김(not responding·disconnected) 원인: vCenter 이벤트·작업·vpxd 로그·호스트 로그·ESXi syslog 를 한 타임라인으로, 끊김 구간별 원인 후보"><svg viewBox="0 0 36 36"><path d="M4 6h28v16H4Zm3 3v10h22V9ZM12 26h12v3H12Zm10.5-13.5-4 4-2.5-2.5-4 4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M27 23l5 5" stroke="currentColor" stroke-width="2.4"/></svg><span>호스트 분석</span></a>
+    <a data-nav="vks" id="nav-vks" title="vCenter 에서 자동으로 찾은 Supervisor·워크로드 클러스터의 노드·파드 상태와 파드 로그"><svg viewBox="0 0 36 36"><path d="M18 3 31 10.5v15L18 33 5 25.5v-15Zm0 3.4L8 12.2v11.6l10 5.8 10-5.8V12.2Zm0 4.6 6 3.5v7L18 25l-6-3.5v-7Z" fill="currentColor"/></svg><span>VKS</span></a>
+    <a data-nav="sli" id="nav-sli" title="Isvara 4대 경합 지표(CPU ready·메모리 latency·디스크 latency·dropped packets)로 VM·클러스터 성능 점수와 페일오버 여유"><svg viewBox="0 0 36 36"><path d="M18 5a14 14 0 1 0 14 14h-3a11 11 0 1 1-11-11Zm0 6a8 8 0 1 0 8 8h-3a5 5 0 1 1-5-5Zm1.2 6.2 9-9 2.1 2.1-9 9Z" fill="currentColor"/></svg><span>성능 SLI</span></a>
+    <a data-nav="pf" id="nav-pf" title="호스트·VM 성능 — 호스트·VM 별 CPU(사용률·ready·co-stop)·메모리(사용률·active·balloon·swap·latency)·디스크 I/O(IOPS·처리량·지연, 가상 디스크·LUN 별)·네트워크(대역폭·패킷·드롭, vNIC·vmnic 별) — 실시간·24시간·7일·30일, 지금 부하 순위"><svg viewBox="0 0 36 36"><path d="M4 30h28v2H4Zm2-4h5V14H6Zm7 0h5V6h-5Zm7 0h5V18h-5Zm7 0h5V10h-5Z" fill="currentColor"/></svg><span>호스트·VM 성능</span></a>
+    <a data-nav="st" id="nav-st" title="VM 네트워크 트래픽 — NSX 세그먼트·VDS·표준 vSwitch 포트그룹·Avi 가상 서비스별 모든 VM(vNIC)의 수신·송신 대역폭·패킷·드롭(vCenter 실시간 성능 카운터) + NSX 포트 DFW 차단·Avi VIP 대역폭"><svg viewBox="0 0 36 36"><path d="M4 8h10v6H4Zm18 0h10v6H22ZM13 24h10v6H13ZM9 14h2v4h16v-4h2v6H19v4h-2v-4H9Z" fill="currentColor"/></svg><span>네트워크 트래픽</span></a>
+    <a data-nav="om" id="nav-om" title="VCF Operations 메트릭 — 호스트·VM·클러스터·데이터스토어 최신 지표, 추세, 메트릭 선택기, CSV/JSON 내보내기"><svg viewBox="0 0 36 36"><path d="M4 30h28v3H4Zm2-4V16h5v10Zm8 0V8h5v18Zm8 0v-7h5v7Z" fill="currentColor"/></svg><span>VCF Ops 메트릭</span></a>
+    <a data-nav="cap" id="nav-cap" title="용량 계획 — 클러스터 CPU/메모리·데이터스토어 추세와 80/90% 도달 예상일, 과다·과소·유휴·장기 꺼짐 VM 적정화"><svg viewBox="0 0 36 36"><path d="M4 30h28v3H4Zm2-3V17h5v10Zm8 0V9h5v18Zm8 0V13h5v14ZM5 5l9 6 7-4 10 5-1.3 2.6L21 10.4l-7 4L5.6 8.6Z" fill="currentColor"/></svg><span>용량·적정화</span><b class="nav-badge" id="cap-badge" hidden></b></a>
+    <a data-nav="rd" id="nav-rd" title="VCF 9.x 하드웨어 준비도 — BMC(Redfish 읽기 전용) 스캔으로 CPU 지원 등급·메모리 채널·vSAN ESA·NIC/ToR·TPM/부팅·BMC 보안·BIOS 기준선 판정"><svg viewBox="0 0 36 36"><path d="M5 6h26v8H5Zm3 3v2h2V9Zm4 0v2h2V9Zm-7 9h26v8H5Zm3 3v2h2v-2Zm4 0v2h2v-2Zm10 9 3 3 6-7-2-1.6-4 4.8-1.4-1.4Z" fill="currentColor"/></svg><span>하드웨어 준비도</span></a>
+    <a data-nav="rv" id="nav-rv" title="RVTools 분석 — RVTools 내보내기(xlsx)를 올리면 물리·논리·스토리지 구성도, 전체 컴플라이언스(인프라 점검·KISA·VMSA·VCF 9), 용량 분석, AI(PAIS 등) 진단·질의응답"><svg viewBox="0 0 36 36"><path d="M7 4h15l7 7v21H7Zm14 1.5V12h6.5M11 17h14v2H11Zm0 4h14v2H11Zm0 4h9v2h-9Z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>RVTools 분석</span></a>
+    <a data-nav="lc" id="nav-lc" title="라이선스 관리 — 공급자 데이터·Broadcom CSP·실사용(vCenter·RVTools·VCF Operations 사용량)을 프로젝트별로 비교, 키 매칭·만료·초과 점검"><svg viewBox="0 0 36 36"><path d="M22 5a9 9 0 0 0-8.6 11.7L4 26v6h6v-3h3v-3h3l2.3-2.3A9 9 0 1 0 22 5Zm3 5a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5Z" fill="none" stroke="currentColor" stroke-width="2"/></svg><span>라이선스 관리</span></a>
+    <a data-nav="save" id="nav-save" title="비용 절감 찾기 — VM 적정화·호스트 줄이기·꺼진 VM·스냅숏·외장 스토리지→vSAN ESA·VCF 코어 맞추기를 금액 순으로, AI 한 장 요약"><svg viewBox="0 0 36 36"><path d="M18 3a15 15 0 1 0 0 30 15 15 0 0 0 0-30Zm1.4 23.5V29h-2.8v-2.5c-2.6-.4-4.6-2-4.8-4.5h3c.2 1.3 1.4 2.1 3.2 2.1 1.9 0 3-.8 3-2 0-1.1-.8-1.7-3.3-2.2-3.2-.7-5.4-1.8-5.4-4.6 0-2.2 1.8-3.8 4.3-4.2V8.6h2.8v2.5c2.4.4 4.1 2 4.3 4.3h-2.9c-.2-1.2-1.2-1.9-2.8-1.9-1.6 0-2.6.7-2.6 1.8 0 1 .9 1.5 3.2 2 3.3.7 5.5 1.8 5.5 4.8 0 2.3-1.8 4-4.7 4.4Z" fill="currentColor"/></svg><span>비용 절감</span></a>
+    <a data-nav="vchk" id="nav-vchk" title="vCenter Compute·Storage·Network·Hardware(BIOS·드라이버·펌웨어) 상세 점검"><svg viewBox="0 0 36 36"><path d="M5 5h26v18H5Zm3 3v12h20V8Zm2 18h16v3H10Zm3-14 3 3 6-6 2 2-8 8-5-5Z" fill="currentColor"/></svg><span>인프라 점검</span><b class="nav-badge" id="vchk-badge" hidden></b></a>
+    <a data-nav="bp" id="nav-bp" title="vSphere·vSAN 구성을 Broadcom 공식 권장 사항과 대조해 권장 구성인지 판정"><svg viewBox="0 0 36 36"><path d="M18 3 5 8v9c0 8 5.6 14.4 13 16 7.4-1.6 13-8 13-16V8Zm0 3.2 10 3.9V17c0 6.3-4.2 11.4-10 12.9C12.2 28.4 8 23.3 8 17v-6.9Zm-1.6 15.6-4.2-4.2 1.8-1.8 2.4 2.4 6.1-6.1 1.8 1.8Z" fill="currentColor"/></svg><span>권장 구성 판독</span><b class="nav-badge warnb" id="bp-badge" hidden></b></a>
+    <a data-nav="life" id="nav-life" title="수명 주기 점검 — 인증서 만료 달력(VKS 우선)·구성 드리프트(기준선·호스트끼리)·버전 지원 종료일"><svg viewBox="0 0 36 36"><path d="M7 7h22v22H7Zm3 6v13h16V13Zm2-9h3v5h-3Zm9 0h3v5h-3Zm-7 13h3v3h-3Zm5 0h3v3h-3Zm5 0h3v3h-3Zm-10 5h3v3h-3Zm5 0h3v3h-3Z" fill="currentColor"/></svg><span>수명 주기 점검</span><b class="nav-badge warnb" id="life-badge" hidden></b></a>
+    <a data-nav="dr" id="nav-dr" title="SRM 복구 계획·보호 그룹, VM 스냅숏, vCenter·NSX·SDDC Manager 백업, VM 백업 현황"><svg viewBox="0 0 36 36"><path d="M18 4a14 14 0 1 0 13.6 17.3l-2.9-.7A11 11 0 1 1 26 10.2L22 14h10V4l-3.9 3.9A13.9 13.9 0 0 0 18 4Zm-1.5 6v9.2l7 4.2 1.5-2.5-5.5-3.3V10Z" fill="currentColor"/></svg><span>DR·보호</span><b class="nav-badge" id="dr-badge" hidden></b></a>
+    <div class="vnav-h">보안·컴플라이언스</div>
+    <a data-nav="assess" id="nav-assess" title="ESXi·vCenter 하드닝·KISA 가상화 점검(HV-01~25)·VMSA/CVE 버전 판독(읽기 전용)"><svg viewBox="0 0 36 36"><path d="M18 2 4 7v9c0 8.6 6 16.4 14 18 8-1.6 14-9.4 14-18V7Zm-1 8h2v9h-2Zm1 15a1.6 1.6 0 1 1 0-3.2 1.6 1.6 0 0 1 0 3.2ZM8 9.3l10-3.6 10 3.6V16c0 6.6-4.4 12.8-10 14.6C12.4 28.8 8 22.6 8 16Z" fill="currentColor"/></svg><span>보안 판독</span><b class="nav-badge" id="assess-badge" hidden></b></a>
+    <a data-nav="sec" id="nav-sec" title="FortiGate 방화벽 — 무차별 대입·포트 스캔·IPS 탐지, 트래픽 집계"><svg viewBox="0 0 36 36"><path d="M18 2 5 7v9c0 8.3 5.6 15.6 13 18 7.4-2.4 13-9.7 13-18V7Zm0 3.2 10 3.9V16c0 6.7-4.3 12.6-10 14.8C12.3 28.6 8 22.7 8 16V9.1Zm-1.5 6.3v8h3v-8Zm0 10v3h3v-3Z" fill="currentColor"/></svg><span>보안(방화벽)</span><b class="nav-badge" id="sec-badge" hidden></b></a>
+    <a data-nav="vuln" id="nav-vuln" title="내부 취약점 검증 — 침해된 업무 VM 이 어디까지 갈 수 있나: VMware 버전·하드닝·노출·망 분리·네트워크 장비·인증서·지원 종료·KEV 를 묶어 공격 경로를 계속 다시 계산(공격 도구 없음)"><svg viewBox="0 0 36 36"><path d="M18 3 5 8v9c0 8 5.5 14 13 16 7.5-2 13-8 13-16V8Zm0 5 8 3v6c0 5.4-3.4 9.6-8 11.2-4.6-1.6-8-5.8-8-11.2v-6Z" fill="currentColor"/><path d="M17 12h2.6v8H17zm0 10h2.6v2.6H17z" fill="currentColor"/></svg><span>취약점 검증</span><b class="nav-badge" id="vuln-badge" hidden></b></a>
+    <div class="vnav-h">비용·리포트</div>
+    <a data-nav="bill" id="nav-bill" title="VM 사용량 정산 — 테넌트·프로젝트(클러스터·폴더·태그 매칭)·요율표·기간 보고서·명세서"><svg viewBox="0 0 36 36"><path d="M7 3h22v30l-3.7-2.4L22 33l-4-2.4-4 2.4-3.3-2.4L7 33Zm4 7v2.6h14V10Zm0 6v2.6h14V16Zm0 6v2.6h9V22Z" fill="currentColor"/></svg><span>정산(Billing)</span></a>
+    <a data-nav="cc" id="nav-cc" title="지금 쓰는 VCF 객체를 AWS·Azure·GCP 서비스와 짝지어 월 비용 비교 — 구성요소 매핑·VM 별 인스턴스·IOPS 최소/평균/최대"><svg viewBox="0 0 36 36"><path d="M10 26a7 7 0 0 1-.6-14A9 9 0 0 1 27 13a6.5 6.5 0 0 1-.5 13Zm7-11v2h-2.5a2.5 2.5 0 0 0 0 5h4a.5.5 0 0 1 0 1H14v2h3v2h2v-2h.5a2.5 2.5 0 0 0 0-5h-4a.5.5 0 0 1 0-1H22v-2h-3v-2Z" fill="currentColor"/></svg><span>클라우드 비용 비교</span></a>
+    <a data-nav="rep" id="nav-rep"><svg viewBox="0 0 36 36"><path d="M7 3h16l7 7v23H7Zm15 1.6V11h6.4M11 27h3v-7h-3Zm5.5 0h3V15h-3Zm5.5 0h3v-10h-3Z" fill="currentColor"/></svg><span>리포트</span></a>
+    <div class="vnav-h">AI·지식</div>
+    <a data-nav="chat" id="nav-chat"><svg viewBox="0 0 36 36"><path d="M18 4C9.7 4 3 9.6 3 16.5c0 3.9 2.2 7.4 5.6 9.7L7 32l6.7-3.4c1.4.3 2.8.4 4.3.4 8.3 0 15-5.6 15-12.5S26.3 4 18 4Z" fill="currentColor"/></svg><span>AI 질의</span></a>
+    <a data-nav="rag" id="nav-rag"><svg viewBox="0 0 36 36"><path d="M6 4h18l6 6v22H6Zm16 1.5V11h5.5M10 16h16v2.4H10Zm0 5h16v2.4H10Zm0 5h11v2.4H10Z" fill="currentColor"/></svg><span>지식(KB·문서)</span></a>
+    <a data-nav="bot" id="nav-bot" title="What-If 시나리오(AI 체크봇) — 호스트 장애·롤링 유지보수·클러스터 장애·데이터스토어 APD·vCenter 업그레이드 등 what-if 시나리오를 대량으로 만들어 계속 검증, 영향받는 리소스 목록"><svg viewBox="0 0 36 36"><path d="M16.5 3h3v4h7A3.5 3.5 0 0 1 30 10.5V26a3.5 3.5 0 0 1-3.5 3.5h-17A3.5 3.5 0 0 1 6 26V10.5A3.5 3.5 0 0 1 9.5 7h7Zm-4 10a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5Zm11 0a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5ZM12 22v2.5h12V22ZM2 14h2.5v8H2Zm29.5 0H34v8h-2.5ZM11 31h14v2H11Z" fill="currentColor"/></svg><span>What-If 시나리오</span><b class="nav-badge warnb" id="cb-badge" hidden></b></a>
+    <a data-nav="chg" id="nav-chg" title="변경 사전 검토 — 작업 계획을 적으면 대상·영향·사전 점검·권장 시간대·작업 절차서(AI 해석·검토 선택)"><svg viewBox="0 0 36 36"><path d="M8 3h14l7 7v23H8Zm13 2v6h6M12 16h13v2.4H12Zm0 5h13v2.4H12Zm0 5h8v2.4h-8Z" fill="currentColor"/><path d="m25 25 3 3 5-6" fill="none" stroke="currentColor" stroke-width="2.4"/></svg><span>변경 사전 검토</span></a>
+    <div class="vnav-h">수집·연동</div>
+    <a data-nav="coll" id="nav-coll"><svg viewBox="0 0 36 36"><path d="M4 28h28v3H4Zm2-3V14h5v11Zm8 0V6h5v19Zm8 0V10h5v15Z" fill="currentColor"/></svg><span>수집 현황</span><b class="nav-badge" id="coll-badge" hidden></b></a>
+    <a id="btn-conn" data-nav="conn"><svg viewBox="0 0 36 36"><path d="M22 4v6h-8V4h-3v6H8v8a8 8 0 0 0 6.5 7.9V32h7v-6.1A8 8 0 0 0 28 18v-8h-3V4Z" fill="currentColor"/></svg><span>커넥터</span></a>
+    <a data-nav="fwd" id="nav-fwd" data-perm="operate"><svg viewBox="0 0 36 36"><path d="M4 8h20v3H4Zm0 8h14v3H4Zm0 8h20v3H4Zm23-13 5 5-5 5v-3.5h-6v-3h6Zm0 13 5 5-5 5v-3.5h-6v-3h6Z" fill="currentColor"/></svg><span>로그 전송 설정</span><b class="nav-badge" id="fwd-badge" hidden></b></a>
+    <a data-nav="agents" id="nav-agents" title="VM 게스트·물리 서버 OS 로그 에이전트(Fluent Bit·rsyslog) 상태·등록"><svg viewBox="0 0 36 36"><path d="M4 5h28v18H4Zm3 3v12h22V8ZM12 27h12v3H12Zm-3-14h6v3H9Zm0 4h10v1.5H9Zm13-4h5v5h-5Z" fill="currentColor"/></svg><span>VM·서버 에이전트</span><b class="nav-badge" id="agents-badge" hidden></b></a>
+    <a data-nav="snmp" id="nav-snmp"><svg viewBox="0 0 36 36"><path d="M18 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm-6.4-9.4 1.7 1.7a6.6 6.6 0 0 0 0 9.4l-1.7 1.7a9 9 0 0 1 0-12.8Zm12.8 0a9 9 0 0 1 0 12.8l-1.7-1.7a6.6 6.6 0 0 0 0-9.4ZM7.4 7.4l1.7 1.7a12.6 12.6 0 0 0 0 17.8l-1.7 1.7a15 15 0 0 1 0-21.2Zm21.2 0a15 15 0 0 1 0 21.2l-1.7-1.7a12.6 12.6 0 0 0 0-17.8Z" fill="currentColor"/></svg><span>SNMP 트랩</span></a>
+    <div class="vnav-h">시스템·관리</div>
+    <a data-nav="plat" id="nav-plat" title="처리 지연·대기열·DB·실시간 연결·알림 발송·이중화"><svg viewBox="0 0 36 36"><path d="M3 18h7l3-8 5 16 4-11 2 3h9v3h-10.6L21 19.5 17.6 30 12.8 15 12 18v.0L12 21H3Z" fill="currentColor"/></svg><span>플랫폼 상태</span><b class="nav-badge" id="plat-badge" hidden></b></a>
+    <a data-nav="sys" id="nav-sys" title="현재 버전·패치 적용·롤백·기록"><svg viewBox="0 0 36 36"><path d="M18 3a15 15 0 1 0 15 15h-3A12 12 0 1 1 18 6Zm9 0v6h6v3h-9V3Zm-10.5 7h3v8.4l5.6 3.3-1.5 2.6-7.1-4.2Z" fill="currentColor"/></svg><span>시스템·패치</span><b class="nav-badge sys-ver" id="app-ver"></b></a>
+    <a data-nav="set" id="nav-set" data-perm="settings"><svg viewBox="0 0 36 36"><path d="M32 20.3v-4.6l-4.2-1a10 10 0 0 0-1-2.4l2.3-3.7-3.3-3.3-3.7 2.3a10 10 0 0 0-2.4-1L18.7 2h-4.6l-1 4.2a10 10 0 0 0-2.4 1L7 4.9 3.7 8.2 6 11.9a10 10 0 0 0-1 2.4L.8 15.3v4.6l4.2 1a10 10 0 0 0 1 2.4l-2.3 3.7L7 30.3 10.7 28a10 10 0 0 0 2.4 1l1 4.2h4.6l1-4.2a10 10 0 0 0 2.4-1l3.7 2.3 3.3-3.3-2.3-3.7a10 10 0 0 0 1-2.4ZM16.4 23a5 5 0 1 1 0-10 5 5 0 0 1 0 10Z" fill="currentColor"/></svg><span>운영 설정</span></a>
+    <a data-nav="users" id="nav-users" data-perm="users"><svg viewBox="0 0 36 36"><path d="M13 16a6 6 0 1 0 0-12 6 6 0 0 0 0 12Zm13 1a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9ZM13 19c-5.5 0-10 3-10 6.6V30h20v-4.4C23 22 18.5 19 13 19Zm13 1.2c-.9 0-1.8.1-2.6.3a7.6 7.6 0 0 1 2.1 5.1V30H34v-3.7c0-3.3-3.6-6.1-8-6.1Z" fill="currentColor"/></svg><span>사용자·토큰</span></a>
+    <a data-nav="audit" id="nav-audit" data-perm="audit.view"><svg viewBox="0 0 36 36"><path d="M18 2 4 7v9c0 8.6 6 16.4 14 18 8-1.6 14-9.4 14-18V7Zm-2.2 22.8-6.3-6.3 2.3-2.3 4 4 8.5-8.5 2.3 2.3Z" fill="currentColor"/></svg><span>감사로그</span></a>
+    <a data-nav="sp" id="nav-sp" data-perm="audit.view" title="보안 상태 점검 — 인증·MFA·API 토큰·외부 공개(Cloudflare Access)·보안 머리글·파일 권한·감사로그 무결성을 주기 점검, 점수·추이·새로 나빠진 항목 알림"><svg viewBox="0 0 36 36"><path d="M18 2 4 7v9c0 8.6 6 16.4 14 18 8-1.6 14-9.4 14-18V7Zm0 8a6 6 0 0 1 6 6h-3a3 3 0 0 0-6 0v2h9v9H12v-9h0v-2a6 6 0 0 1 6-6Zm-3 11v3h6v-3Z" fill="currentColor"/></svg><span>보안 점검</span></a>
+    <a data-nav="mobile" id="nav-mobile" title="안드로이드 앱 내려받기·기기 연결 — 서버 업데이트·이상 징후·DR 알림을 폰으로 받기"><svg viewBox="0 0 36 36"><path d="M11 2h14a3 3 0 0 1 3 3v26a3 3 0 0 1-3 3H11a3 3 0 0 1-3-3V5a3 3 0 0 1 3-3Zm0 5v20h14V7Zm5 22.5v2h4v-2Z" fill="currentColor"/></svg><span>모바일 앱</span></a>
+    <a id="btn-alert-test-nav" data-perm="operate"><svg viewBox="0 0 36 36"><path d="M18 3 2 31h32Zm-1.5 9h3v10h-3Zm1.5 15.5a1.8 1.8 0 1 1 0-3.6 1.8 1.8 0 0 1 0 3.6Z" fill="currentColor"/></svg><span>알림 채널 테스트</span></a>
+  </nav>
+
+  <div class="content">
+    <div class="page-head">
+      <div>
+        <div class="crumb">Operations · Log Intelligence</div>
+        <h1>실시간 로그 분석</h1>
+      </div>
+      <div class="kpis">
+        <div class="kpi"><span>EPS</span><b id="k-eps">0</b><canvas id="spark" width="96" height="24"></canvas></div>
+        <div class="kpi"><span>수집 이벤트</span><b id="k-total">0</b></div>
+        <div class="kpi warn"><span>미확인 이상</span><b id="k-open">0</b></div>
+        <div class="kpi"><span>알림 발송</span><b id="k-alerts">0</b></div>
+        <div class="kpi click" id="k-coll" title="항목별 수집 현황 보기"><span>수집 상태</span><b id="k-coll-v">-</b></div>
+      </div>
+    </div>
+
+    <div class="conn-strip" id="conn-strip"></div>
+
+    <div class="mobile-tabs"><button data-pane="logs" class="on">실시간 로그</button><button data-pane="anoms">이상 징후 <span id="mt-count"></span></button></div>
+
+    <main class="grid">
+      <section class="card pane logs" id="pane-logs">
+        <div class="card-header">
+          <span>실시간 로그</span>
+          <div class="ctl">
+            <select id="f-sev">
+              <option value="debug">전체 심각도</option><option value="info">정보 이상</option>
+              <option value="warning">경고 이상</option><option value="error">오류 이상</option><option value="critical">Critical</option>
+            </select>
+            <input id="f-q" placeholder="필터 (host, 메시지, /정규식/)">
+            <label class="tog"><input type="checkbox" id="f-flag"><span>이상만</span></label>
+            <button class="btn-sm" id="btn-pause">일시정지</button>
+            <button class="btn-sm" id="btn-logdl" title="지금 필터(소스·등급·문자열) 그대로 기간을 정해 파일로 받기">다운로드</button>
+            <button class="btn-sm icon" id="btn-clear" title="화면 비우기">✕</button>
+          </div>
+        </div>
+        <div class="srcs" id="src-filters"></div>
+        <div class="dg-head"><span>시각</span><span>소스</span><span>심각도</span><span>호스트 / 대상</span><span>메시지</span></div>
+        <div class="loglist" id="loglist"></div>
+        <div class="dg-foot"><span><b id="log-count">0</b> 행</span><span id="paused-n"></span></div>
+      </section>
+
+      <aside class="card pane anoms" id="pane-anoms">
+        <div class="card-header">
+          <span>이상 징후</span>
+          <div class="tabs btn-group"><button data-af="open" class="on">미확인</button><button data-af="crit">Critical</button><button data-af="all">전체</button></div>
+        </div>
+        <div class="legend">규칙·통계 1차 탐지 → Gemma 4 31B 판정</div>
+        <div class="anomlist" id="anomlist"></div>
+      </aside>
+    </main>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-conn" hidden>
+  <div class="drawer-box">
+    <div class="drawer-head"><h3>API 커넥터 상태</h3>
+      <div><button class="btn-sm" id="btn-alert-test" data-perm="operate">알림 채널 테스트</button><button class="btn-sm solid" id="btn-test-all" data-perm="operate">전체 연결 테스트</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div id="conn-table"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-coll" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>수집 현황 <small id="coll-sub"></small></h3><button class="x" data-close aria-label="닫기">✕</button></div>
+    <div class="coll-tiles" id="coll-tiles"></div>
+    <div class="coll-bar">
+      <div class="btn-group" id="coll-scope"><button data-v="all" class="on">전체</button><button data-v="bad">문제만</button></div>
+      <div class="btn-group" id="coll-kind"><button data-v="" class="on">모든 유형</button><button data-v="conn">API 커넥터</button><button data-v="syslog">Syslog</button><button data-v="snmp">SNMP</button><button data-v="ingest">HTTP</button><button data-v="recv">수신기</button></div>
+      <input id="coll-q" placeholder="항목·호스트·IP 필터">
+    </div>
+    <div class="coll-table"><table><thead><tr><th>상태</th><th>항목</th><th>유형</th><th>소스</th><th>마지막 수신</th><th class="r">분당 (1분 / 15분)</th><th>최근 30분</th><th class="r">누적</th><th class="r">오류(15분)</th><th>판정 · 최근 메시지</th></tr></thead>
+      <tbody id="coll-rows"></tbody></table></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-snmp" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>SNMP 트랩 <small id="snmp-sum"></small></h3><button class="x" data-close aria-label="닫기">✕</button></div>
+    <div id="snmp-unknown" class="snmp-unknown"></div>
+    <div class="snmp-grid">
+      <div class="snmp-table"><table><thead><tr><th>시각</th><th>심각도</th><th>소스</th><th>송신 장비</th><th>호스트</th><th>트랩</th><th>벤더</th><th>메시지</th></tr></thead><tbody id="snmp-rows"></tbody></table></div>
+      <div class="snmp-detail" id="snmp-detail"><div class="empty">트랩을 선택하면 varbind 상세가 표시됩니다.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-rag" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>지식 — KB·TechDocs 라이브러리</h3>
+      <div><label class="btn-sm solid" style="cursor:pointer" data-perm="settings" title="KB·TechDocs md 파일 여러 개를 골라 바로 색인(같은 파일은 덮어씀)">md 파일 올리기<input type="file" id="kn-md" accept=".md,.markdown,.mdx,.txt" multiple hidden></label>
+      <label class="btn-sm" style="cursor:pointer" data-perm="settings" title="아카이브 폴더를 통째로 — 하위 폴더 구조 유지, _catalog 등 메타 폴더는 건너뜀">폴더 올리기<input type="file" id="kn-dir" webkitdirectory multiple hidden></label>
+      <label class="btn-sm" style="cursor:pointer" data-perm="settings" title="대량(수천 개 이상)은 zip 이 빠릅니다. 같은 이름 zip 은 묶음 전체를 교체">zip 묶음 올리기<input type="file" id="kn-file" accept=".zip" hidden></label>
+      <button class="btn-sm" id="kn-reindex" data-perm="settings" title="바뀐 파일만 다시 색인">지금 색인</button>
+      <button class="btn-sm" id="kn-full" data-perm="settings" title="전체 다시 파싱(파서 개선 후)">전체 재색인</button>
+      <button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="kn-wrap">
+      <h4 class="kn-h4">KB·TechDocs 라이브러리 <small>md 파일의 KB 번호·제품·적용 버전·증상/원인/해결/우회 구역을 뽑아 색인 — AI 분석·질의·관제 개체 상세의 근거</small></h4>
+      <div id="kn-drop" class="kn-drop" data-perm="settings">md 파일·폴더·zip 을 여기에 끌어다 놓으세요 <small>— md·markdown·txt 는 파일마다 바로 색인(같은 경로는 덮어씀), zip 은 묶음으로</small></div>
+      <div id="kn-up" class="kn-upbox" hidden></div>
+      <div id="kn-lib" class="kn-lib"><div class="empty">불러오는 중…</div></div>
+      <div class="rag-search"><input id="rag-q" placeholder="검색 시험: vob.storage.apd.start / SE_DOWN / edge_datapath_cpu_high / KB 번호 / 질문"><select id="rag-src"><option value="">전체 소스</option></select></div>
+      <div id="rag-results" class="rag-list kn-list"></div>
+      <h4 class="kn-h4">지식 공백 <small>근거 문서 없이 판정된 최근 7일 이상징후 패턴 — 더 모아야 할 KB·문서 키워드(누르면 검색)</small></h4>
+      <div id="kn-gaps" class="kn-gaps"></div>
+      <h4 class="kn-h4">최근 갱신 KB <small>front matter updated 기준 14일 — 운영 중인 vCenter·ESXi·NSX·Avi 버전에 해당하는 문서를 위로</small>
+        <label class="kn-mine"><input type="checkbox" id="kn-mine"> 우리 환경 해당만</label></h4>
+      <div id="kn-recent" class="kn-gaps"></div>
+      <h4 class="kn-h4">RAG 팩 <small id="rag-sum"></small> <label class="btn-sm" style="cursor:pointer;margin-left:8px" data-perm="settings">팩 가져오기<input type="file" id="rag-file" accept=".ragpack,.zip" hidden></label></h4>
+      <div id="rag-list" class="rag-list"></div>
+    </div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-arch" hidden>
+  <div class="drawer-box wide tp-box">
+    <div class="drawer-head"><h3>토폴로지 <small>연결된 커넥터가 실제로 수집한 고객 VCF 구성 · 15초 갱신 · 로그 수신 시 개체가 깜빡임</small></h3>
+      <div><button class="btn-sm on" data-tptab="live">고객 환경(실시간)</button><button class="btn-sm" data-tptab="sys">시스템 구성도</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div id="tp-live" class="tp-live">
+      <div class="tp-bar0"><div class="tp-sum" id="tp-sum"></div>
+        <div class="tp-ctl"><input id="tp-q" placeholder="개체 검색(호스트·클러스터·VIP)"><button class="btn-sm" id="tp-zout" title="축소">−</button><span id="tp-zoom">100%</span><button class="btn-sm" id="tp-zin" title="확대">+</button><button class="btn-sm" id="tp-fit">화면 맞춤</button><button class="btn-sm" id="tp-reload">새로 고침</button></div></div>
+      <div class="tp-legend"><span><i class="tp-dot ok"></i>정상</span><span><i class="tp-dot warn"></i>주의</span><span><i class="tp-dot down"></i>장애</span><span><i class="tp-dot maint"></i>유지보수</span><span><i class="tp-dot unknown"></i>미확인</span><span class="muted">휠 = 확대·축소 · 드래그 = 이동 · 더블클릭 = 해당 부분 확대 · 클릭 = 상세</span><span id="tp-feed" class="tp-feed"></span></div>
+      <div class="tp-wrap"><div class="tp-canvas" id="tp-canvas"></div><aside class="tp-detail" id="tp-detail" hidden></aside></div>
+    </div>
+    <div id="tp-sys" hidden style="overflow:auto;padding:14px 18px;background:#fafafa;flex:1"><p class="small"><a class="btn-sm" href="/static/architecture.svg" download="vcf-aiops-architecture.svg">SVG 다운로드</a> VCF AIops 자체 구성(수집·처리·저장·AI·알림)</p><img src="/static/architecture.svg" alt="VCF AIops 구성도" style="width:100%;min-width:900px;background:#fff;border:1px solid #dcdcdc"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-chat" hidden>
+  <div class="drawer-box chat">
+    <div class="drawer-head"><h3>AI 질의 <small id="chat-ctx"></small></h3><button class="x" data-close aria-label="닫기">✕</button></div>
+    <div class="chat-log" id="chat-log"></div>
+    <form id="chat-form"><textarea id="chat-q" rows="2" placeholder="예) 지난 10분간 스토리지 관련 이상의 공통 원인은? / 이 APD가 vSAN에 영향을 주나?"></textarea><div class="chat-opts"><label class="chat-web" title="공개 웹에서 근거를 찾아 [W#]로 인용(정리된 검색어만 외부로 — 장비 이름·IP 제외). 설정 › 웹 검색 필요"><input type="checkbox" id="chat-web"> 웹 검색</label><button class="btn-sm solid">전송</button></div></form>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-inc" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>인시던트 <small id="inc-sub"></small></h3>
+      <div><button class="btn-sm" id="inc-approvals" data-perm="action.approve">승인 대기 <b id="inc-appr-n">0</b></button>
+      <button class="btn-sm solid" id="inc-new" data-perm="operate">인시던트 생성</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="inc-kpis" id="inc-kpis"></div>
+    <div class="coll-bar">
+      <div class="btn-group" id="inc-status"><button data-v="active" class="on">진행 중</button><button data-v="">전체</button><button data-v="resolved">해결</button><button data-v="closed">종료</button></div>
+      <input id="inc-q" placeholder="ID · 제목 · 호스트 · 클러스터 검색">
+    </div>
+    <div class="inc-grid">
+      <div class="inc-list"><table><thead><tr><th>ID</th><th>심각도</th><th>제목</th><th>상태</th><th>담당</th><th class="r">이상</th><th>최근</th><th>SLA</th></tr></thead><tbody id="inc-rows"></tbody></table></div>
+      <div class="inc-detail" id="inc-detail"><div class="empty">인시던트를 선택하세요.</div></div>
+    </div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-plat" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>플랫폼 상태 <small id="plat-sub">실시간 처리 여유 · 내부 작업 · 저장 · 알림 발송 · 이중화</small></h3>
+      <div><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad ig-pad" id="ig-box"></div>
+    <div class="pad" id="plat-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-agents" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>VM·서버 에이전트 <small id="ag-sub">VM 게스트·물리 서버 OS 로그(Fluent Bit·rsyslog) — 하트비트 기준 무응답 감시</small></h3>
+      <div><button class="btn-sm solid" id="ag-enroll" data-perm="settings">에이전트 등록</button><button class="btn-sm" id="ag-cov">미설치 VM 확인</button>
+        <button class="btn-sm" id="ag-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="ag-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-sr" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>지원 요청(SR) <small>장애 근거 → 벤더 SR 양식 보고서·이메일 초안·PDF·로그 묶음·공유 링크</small></h3><div><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="sr-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-cc" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>클라우드 비용 비교 <small>VCF 객체 ↔ AWS·Azure·GCP 서비스 매핑·월 비용·VM IOPS</small></h3><div><button class="btn-sm" id="cc-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="cc-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-rd" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>하드웨어 준비도 <small>VCF 9.x 재사용·도입 전 서버 평가 — BMC Redfish 읽기 전용</small></h3><div><button class="btn-sm" id="rd-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="rd-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-life" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>수명 주기 점검 <small>인증서 만료 달력 · 구성 드리프트 · 버전 지원 종료 — 읽기 전용</small></h3><div><button class="btn-sm" id="life-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="life-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-aiops" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>AIOps 인사이트 <small>원인 추정 · 직전 변경 · 전조 학습 · 피드백 학습 — 분석만</small></h3><div><button class="btn-sm" id="aiops-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="aiops-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-save" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>비용 절감 찾기 <small>돈이 되는 순서로 — 금액은 입력한 단가로만</small></h3><div><button class="btn-sm" id="save-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="save-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-chg" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>변경 사전 검토 <small>작업 계획 → 영향 · 사전 점검 · 권장 시간대 · 절차서 — 계산만</small></h3><div><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="chg-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-vuln" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>내부 취약점 검증 <small>침해된 업무 VM 이 어디까지 갈 수 있나 — 계속 다시 계산 · 공격 도구 없음</small></h3><div><button class="btn-sm" id="vuln-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="vuln-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-tour" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>기능 둘러보기 <small>전체 기능을 영역별 타일로 — 누르면 그 화면으로</small></h3><div><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="tour-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-bot" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>What-If 시나리오 <small>AI 체크봇 · 장애·작업 what-if 시나리오를 대량으로 만들어 계속 검증 — 영향받는 리소스 · 읽기 전용</small></h3><div><button class="btn-sm" id="cb-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad"><div class="vc-tabs cb-mode" role="tablist"><button type="button" role="tab" data-cbmode="list" class="on" aria-selected="true">시나리오 검증</button><button type="button" role="tab" data-cbmode="lib" aria-selected="false">시나리오 라이브러리</button><button type="button" role="tab" data-cbmode="sim" aria-selected="false">장애 시뮬레이터</button></div>
+      <div id="cb-body"></div><div id="lib-body" hidden></div><div id="sm-body" hidden></div></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-rv" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>RVTools 분석 <small>고객 RVTools 내보내기 → 구성도·컴플라이언스·용량·VCF 9 준비도·AI 진단</small></h3><div><button class="btn-sm" id="rv-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="rv-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-lc" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>라이선스 관리 <small>공급자 데이터 · Broadcom CSP · 실사용(vCenter·RVTools·VCF Ops) 비교</small></h3><div><button class="btn-sm" id="lc-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="lc-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-pf" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>호스트·VM 성능 <small>CPU·메모리·디스크 I/O·네트워크 — vCenter 성능 카운터(실시간 20초 · 24시간 · 7일 · 30일)</small></h3><div><button class="btn-sm" id="pf-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="pf-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-st" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>VM 네트워크 트래픽 <small>NSX 세그먼트·VDS·표준 vSwitch·Avi 가상 서비스별 모든 VM(vNIC)의 수신·송신·패킷·드롭</small></h3><div><button class="btn-sm" id="st-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="st-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-mhome" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>한눈에 보기 <small>지금 상태와 최근 알림</small></h3><div><button class="btn-sm" id="mhome-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="mhome-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-mobile" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>모바일 앱 <small>안드로이드 앱 내려받기·기기 연결·알림 설정 — 서버를 패치하면 앱이 알려 줍니다</small></h3><div><button class="btn-sm" id="mobile-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="mobile-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-sp" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>보안 점검 <small>인증·API 토큰·외부 공개(Cloudflare Access)·웹 머리글·서버 파일 — 주기 점검과 점수 추이</small></h3><div><button class="btn-sm solid" id="sp-run" data-perm="settings">지금 점검</button><button class="btn-sm" id="sp-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="sp-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-hd" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>호스트 분석 <small>ESXi 연결 끊김 원인 — vCenter 이벤트·작업·vpxd · 호스트 로그 · ESXi syslog</small></h3><div><button class="btn-sm" id="hd-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="hd-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-vks" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>VKS <small id="vks-sub">Supervisor·워크로드 클러스터 — vCenter 에서 자동 발견</small></h3>
+      <div><button class="btn-sm" id="vks-disc" data-perm="operate">지금 다시 찾기</button><button class="btn-sm" id="vks-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="vks-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-mon" hidden>
+  <div class="drawer-box wide tp-box">
+    <div class="drawer-head"><h3>모니터 <small id="mon-sub"></small></h3>
+      <div><button class="btn-sm solid" id="mon-new" data-perm="operate">새 모니터</button><button class="btn-sm" id="mon-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad mon-pad" id="mon-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-sec" hidden>
+  <div class="drawer-box wide tp-box">
+    <div class="drawer-head"><h3>보안(방화벽) <small id="sec-sub"></small></h3>
+      <div><button class="btn-sm" id="sec-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="sec-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-ai" hidden>
+  <div class="drawer-box wide tp-box">
+    <div class="drawer-head"><h3>AI 분석 <small id="ai-sub"></small></h3>
+      <div><button class="btn-sm" id="ai-settings" data-perm="settings">공급자·조절 설정</button><button class="btn-sm" id="ai-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="ai-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-mv" hidden>
+  <div class="drawer-box wide tp-box">
+    <div class="drawer-head"><h3>VM 액티비티 <small id="mv-sub"></small></h3>
+      <div><button class="btn-sm" id="mv-csv" title="현재 기간·필터 그대로 CSV(Excel) 내려받기">CSV</button><button class="btn-sm" id="mv-rules" data-perm="settings" title="업무 시간·휴일·대량 작업 임계·보호 VM·서비스 계정">위험 신호 규칙</button><button class="btn-sm" id="mv-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="mv-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-sys" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>시스템 · 패치 <small id="sys-sub"></small></h3>
+      <div><button class="btn-sm" id="sys-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="sys-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-inv" hidden>
+  <div class="drawer-box wide tp-box">
+    <div class="drawer-head"><h3>인벤토리 <small id="inv-sub">연결된 커넥터가 수집한 전체 개체</small></h3>
+      <div><button class="btn-sm" id="inv-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="inv-wrap"><nav class="inv-side" id="inv-side"></nav><section class="inv-main" id="inv-main"></section><aside class="tp-detail" id="inv-detail" hidden></aside></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-bill" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>정산(Billing) <small id="bl-sub">VM 사용량 5분 표본 · 테넌트 › 프로젝트 › VM</small></h3>
+      <div><button class="btn-sm" id="bl-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="bl-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-cap" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>용량·적정화 <small id="cp-sub">클러스터·데이터스토어 추세 예측 · VM 적정 크기</small></h3>
+      <div><button class="btn-sm" id="cp-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="cp-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-assess" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>보안 판독 <small id="as-sub">하드닝 · KISA 가상화(HV) · VMSA/CVE — 읽기 전용 수집</small></h3>
+      <div><button class="btn-sm" id="as-run" data-perm="operate">지금 점검</button><button class="btn-sm" id="as-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="as-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-vchk" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>인프라 점검 <small id="vc-sub">vCenter Compute · Storage · Network · Hardware(드라이버·펌웨어)</small></h3>
+      <div><button class="btn-sm" id="vc-run" data-perm="operate">지금 점검</button><button class="btn-sm" id="vc-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="vc-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-bp" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>권장 구성 판독 <small>vSphere·vSAN 구성 ↔ Broadcom 공식 권장 사항(근거 문서 링크)</small></h3>
+      <div><button class="btn-sm" id="bp-run" data-perm="operate">지금 판독</button><button class="btn-sm" id="bp-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="bp-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-dr" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>DR·보호 <small>SRM · 스냅숏 · Appliance 백업 · VM 백업 (읽기 전용)</small></h3>
+      <div><button class="btn-sm" id="dr-run" data-perm="operate">지금 새로 고침</button><button class="btn-sm" id="dr-reload">다시 읽기</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="dr-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-om" hidden>
+  <div class="drawer-box wide tp-box">
+    <div class="drawer-head"><h3>VCF Ops 메트릭 <small id="om-sub"></small></h3>
+      <div><button class="btn-sm" id="om-csv" title="현재 종류·검색 그대로 CSV(Excel)">CSV</button><button class="btn-sm" id="om-json">JSON</button><button class="btn-sm" id="om-pick" data-perm="settings" title="VCF Ops 카탈로그에서 종류별 지표 선택">메트릭 선택</button><button class="btn-sm" id="om-collect" data-perm="operate">지금 수집</button><button class="btn-sm" id="om-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="om-body"></div>
+  </div>
+</div>
+<div class="drawer" id="drawer-sli" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>성능 SLI <small id="sli-sub">Isvara 4대 경합 지표 — VM·클러스터 점수, 페일오버 여유</small></h3>
+      <div><button class="btn-sm" id="sli-reload">새로 고침</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="sli-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-tail" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>실시간 로그 보기 <small id="tl-sub">서버·VM 을 지정하면 그 호스트의 로그를 빠짐없이 실시간으로 표시합니다</small></h3>
+      <div><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="tail-ctl">
+      <label>호스트<input id="tl-host" list="tl-hosts" placeholder="예) db01.bank.local, esx03 (쉼표로 여러 대)" autocomplete="off"></label><datalist id="tl-hosts"></datalist>
+      <label>소스<select id="tl-src"><option value="">전체</option><option value="vm">VM 게스트</option><option value="baremetal">물리 서버 OS</option><option value="redfish">서버 BMC</option><option value="esxi">ESXi</option><option value="vcenter">vCenter</option><option value="nsx">NSX</option><option value="nsx-edge">NSX Edge</option><option value="avi">NSX ALB</option><option value="vks">VKS</option><option value="vks-supervisor">Supervisor</option></select></label>
+      <label>최소 등급<select id="tl-min"><option value="debug">전체</option><option value="info">정보↑</option><option value="warning">경고↑</option><option value="error">오류↑</option><option value="critical">위험</option></select></label>
+      <label>포함 문자열<input id="tl-q" placeholder="예) error, ORA-, EventID=41"></label>
+      <div class="tail-btns"><button class="btn-sm solid" id="tl-start">시작</button><button class="btn-sm" id="tl-pause" disabled>일시정지</button>
+        <button class="btn-sm" id="tl-hist">최근 1시간 불러오기</button><button class="btn-sm" id="tl-clear">지우기</button><button class="btn-sm" id="tl-dl" title="지금 조건(호스트·소스·등급·문자열)으로 기간을 정해 파일로 받기">다운로드</button>
+        <label class="chk"><input type="checkbox" id="tl-follow" checked> 자동 스크롤</label>
+        <label class="chk"><input type="checkbox" id="tl-prefill" checked> 시작 시 최근 기록 먼저 표시</label></div>
+    </div>
+    <div class="tail-sugg" id="tl-sugg"></div>
+    <div class="tail-out" id="tl-out" role="log" aria-live="off"><div class="tail-empty">호스트(또는 소스·문자열)를 정하고 시작을 누르세요. 필터에 맞는 로그가 들어오는 즉시 표시됩니다.</div></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-fwd" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>로그 전송 설정 점검 <small id="fwd-sub">각 제품이 이 서버로 로그를 보내도록 구성됐는지 확인 · 적용은 승인 조치로 실행</small></h3>
+      <div><button class="btn-sm solid" id="fwd-run">다시 점검</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="fwd-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-rep" hidden>
+  <div class="drawer-box">
+    <div class="drawer-head"><h3>운영 리포트 <small id="rep-sub"></small></h3>
+      <div><button class="btn-sm" data-gen="daily" data-perm="operate">일간 생성</button><button class="btn-sm" data-gen="weekly" data-perm="operate">주간 생성</button><button class="btn-sm" data-gen="monthly" data-perm="operate" title="이번 달 1일~지금 · 정산·용량 예측·VM 적정화·보안 판독 포함">월간 생성</button>
+      <button class="btn-sm solid" data-gen="custom" data-perm="operate">기간 지정</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="rep-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-set" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>운영 설정 <small>화면 저장 즉시 적용 · 비밀값 암호화 저장 · 모든 변경 감사 기록</small></h3><button class="x" data-close aria-label="닫기">✕</button></div>
+    <div class="tabs-line" id="set-tabs">
+      <button data-t="connectors" class="on">커넥터</button><button data-t="alerting">알림 채널</button><button data-t="incidents">인시던트·SLA</button>
+      <button data-t="itsm">ITSM</button><button data-t="siem">SIEM 전달</button><button data-t="actions">조치 정책</button><button data-t="maint">유지보수·사일런스</button>
+      <button data-t="monitoring">수집 감시</button><button data-t="detection">탐지 규칙</button><button data-t="ai">AI 분석</button><button data-t="knowledge">지식(KB·문서)</button><button data-t="web_search">웹 검색</button><button data-t="reports">리포트·백업</button>
+    </div>
+    <div class="pad set-body" id="set-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-users" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>사용자 · API 토큰</h3><div><button class="btn-sm solid" id="user-new">사용자 추가</button><button class="btn-sm" id="token-new">토큰 발급</button><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="pad" id="users-body"></div>
+  </div>
+</div>
+
+<div class="drawer" id="drawer-audit" hidden>
+  <div class="drawer-box wide">
+    <div class="drawer-head"><h3>감사로그 <small id="audit-sub">해시 체인으로 위·변조 검증</small></h3>
+      <div><button class="btn-sm" id="audit-verify">무결성 검증</button><a class="btn-sm" id="audit-export" href="/api/audit/export?hours=720">CSV 내보내기(30일)</a><button class="x" data-close aria-label="닫기">✕</button></div></div>
+    <div class="coll-bar">
+      <select id="au-hours"><option value="1">1시간</option><option value="24" selected>24시간</option><option value="168">7일</option><option value="720">30일</option><option value="8760">1년</option></select>
+      <input id="au-user" placeholder="사용자" style="max-width:140px">
+      <select id="au-action"><option value="">모든 행위</option><option value="auth.">인증</option><option value="user.">사용자</option><option value="token.">토큰</option>
+        <option value="settings.">설정</option><option value="action.">조치</option><option value="incident.">인시던트</option><option value="anomaly.">이상징후</option>
+        <option value="silence.">사일런스</option><option value="maintenance.">유지보수</option><option value="rag.">RAG</option><option value="report.">리포트</option><option value="backup.">백업</option><option value="audit.">감사</option><option value="system.">시스템</option></select>
+      <input id="au-q" placeholder="대상·상세 검색">
+    </div>
+    <div class="coll-table"><table><thead><tr><th>시각</th><th>사용자</th><th>역할</th><th>IP</th><th>행위</th><th>대상</th><th>결과</th><th>상세</th></tr></thead><tbody id="au-rows"></tbody></table></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<script src="/static/core.js"></script>
+<script src="/static/app.js"></script>
+<script src="/static/enterprise.js"></script>
+<script src="/static/hosts.js"></script>
+<script src="/static/sli.js"></script>
+<script src="/static/vksmap.js"></script>
+<script src="/static/vks.js"></script>
+<script src="/static/support.js"></script>
+<script src="/static/cloudcost.js"></script>
+<script src="/static/readiness.js"></script>
+<script src="/static/rvtools.js"></script>
+<script src="/static/license.js"></script>
+<script src="/static/vcheck.js"></script>
+<script src="/static/bestpractice.js"></script>
+<script src="/static/lifecycle.js"></script>
+<script src="/static/esa.js"></script>
+<script src="/static/save.js"></script>
+<script src="/static/aiopsx.js"></script>
+<script src="/static/change.js"></script>
+<script src="/static/vuln.js"></script>
+<script src="/static/tour.js"></script>
+<script src="/static/sim.js"></script>
+<script src="/static/scnlib.js"></script>
+<script src="/static/checkbot.js"></script>
+<script src="/static/dr.js"></script>
+<script src="/static/topology.js"></script>
+<script src="/static/inventory.js"></script>
+<script src="/static/system.js"></script>
+<script src="/static/monitors.js"></script>
+<script src="/static/security.js"></script>
+<script src="/static/ai.js"></script>
+<script src="/static/vmmoves.js"></script>
+<script src="/static/opsmetrics.js"></script>
+<script src="/static/knowledge.js"></script>
+<script src="/static/billing.js"></script>
+<script src="/static/assess.js"></script>
+<script src="/static/capacity.js"></script>
+<script src="/static/whatif.js"></script>
+<script src="/static/hostdiag.js"></script>
+<script src="/static/segtraffic.js"></script>
+<script src="/static/perfwatch.js"></script>
+<script src="/static/perfview.js"></script>
+<script src="/static/posture.js"></script>
+<script src="/static/ingestgate.js"></script>
+<script src="/static/mobile.js"></script>
+<script src="/static/navgroup.js"></script>
+<script src="/static/ux.js"></script>
+<script src="/static/layout.js"></script>
+</body>
+</html>
