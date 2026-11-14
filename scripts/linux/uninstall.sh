@@ -4,7 +4,7 @@ set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo "root(sudo)로 실행하세요." >&2; exit 1; }
 systemctl disable --now vcf-aiops 2>/dev/null || true
 rm -f /etc/systemd/system/vcf-aiops.service /usr/local/bin/vcf-aiopsctl /etc/sysctl.d/90-vcf-aiops.conf /etc/systemd/journald.conf.d/90-vcf-aiops.conf
-systemctl daemon-reload
+systemctl daemon-reload 2>/dev/null || true
 rm -rf /opt/vcf-aiops
 if [[ "${1:-}" == "--purge" ]]; then
   rm -rf /etc/vcf-aiops /var/lib/vcf-aiops /etc/chrony/sources.d/vcf-aiops.sources

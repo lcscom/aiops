@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import base64
 import json
 import socket
@@ -366,7 +367,7 @@ class CertScanner:
                    f"인증서 만료 {it['days_left']}일 전 — {it['system']} {it['kind']} {it['name']}")
             ev = LogEvent(source=src, connector="certs", message=msg, severity=sev[b], host=it["name"] if it["source"] == "esxi" else "", entity=it["name"],
                           kind="health", attrs={"app": "cert-expiry", "kind": it["kind"], "days_left": it["days_left"], "cluster": it.get("cluster", "")})
-            ingest(ev) if not asyncio.iscoroutinefunction(ingest) else await ingest(ev)
+            ingest(ev) if not inspect.iscoroutinefunction(ingest) else await ingest(ev)
 
     async def loop(self, beat=lambda: None) -> None:
         await asyncio.sleep(180)

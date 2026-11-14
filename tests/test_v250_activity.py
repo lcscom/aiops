@@ -88,8 +88,8 @@ def test_risk_flags_and_events(tmp_path):
         assert len([x for x in raised if x.attrs.get("vm_activity") == "bulk_delete"]) == 1    # 같은 창 재경보 없음
         await asyncio.sleep(0.2)
         e.moves.recent.clear()                                                                   # DB 에서도 flags·detail 유지
-        db = await e.moves.query(24 * 30, flag="bulk_delete")
-        s = await e.moves.summary(24 * 30)
+        db = await e.moves.query(24 * 3650, flag="bulk_delete")       # 고정 날짜(2026-10) 데이터 — 창을 넉넉히
+        s = await e.moves.summary(24 * 3650)
         return db, s
     db, s = asyncio.run(main())
     assert len(db) == 4 and all("bulk_delete" in r["flags"] for r in db)

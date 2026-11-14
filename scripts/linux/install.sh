@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================================
-#  VCF AIops — Ubuntu Server 설치 / 업그레이드 (24.04 LTS 권장, 22.04 LTS 지원)
+#  VCF AIops — Ubuntu Server 설치 / 업그레이드 (24.04·26.04 LTS 권장, 22.04 LTS 지원)
 #
 #  배치
 #    /opt/vcf-aiops          프로그램(root 소유·읽기 전용) + venv
@@ -74,7 +74,7 @@ case "$STAGE" in all|image|configure) ;; *) die "--stage 는 all|image|configure
 [[ -f "$SRC/app/main.py" ]] || die "프로젝트 폴더를 찾을 수 없습니다: $SRC"
 . /etc/os-release
 [[ "${ID:-}" == "ubuntu" ]] || warn "Ubuntu 가 아닙니다(${PRETTY_NAME:-?}) — 패키지 이름이 다를 수 있습니다."
-case "${VERSION_ID:-}" in 24.04|22.04) ;; *) warn "검증 버전은 Ubuntu 24.04/22.04 입니다(현재 ${VERSION_ID:-?})." ;; esac
+case "${VERSION_ID:-}" in 24.04|26.04|22.04) ;; *) warn "검증 버전은 Ubuntu 24.04·26.04 입니다(현재 ${VERSION_ID:-?})." ;; esac
 FQDN="${FQDN:-$(hostname -f 2>/dev/null || hostname)}"
 SHORT="${FQDN%%.*}"
 IPADDR="$(hostname -I 2>/dev/null | awk '{print $1}')"

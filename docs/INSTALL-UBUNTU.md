@@ -1,8 +1,10 @@
 # VCF AIops — Ubuntu VM 구축 가이드 (A–Z)
 
-대상: Ubuntu Server 24.04 LTS VM 1대(필요 시 2대 이중화)에 VCF AIops 를 설치하고, vCenter·ESXi·NSX·NSX ALB·VKS·물리 서버(BMC)·VM 내부 로그까지 실시간으로 받는 데까지의 전 과정.
+대상: Ubuntu Server 24.04 LTS 또는 26.04 LTS VM 1대(필요 시 2대 이중화)에 VCF AIops 를 설치하고, vCenter·ESXi·NSX·NSX ALB·VKS·물리 서버(BMC)·VM 내부 로그까지 실시간으로 받는 데까지의 전 과정.
 표기: `$` 일반 사용자, `#` root(sudo). `aiops.vcf.lab`·IP 는 예시이므로 실제 값으로 바꾸세요.
 
+> **빠른 길 — 원클릭 스크립트**: [DEPLOY-UBUNTU.md](DEPLOY-UBUNTU.md) 의 `deploy.sh` 가 이 문서의 D~H 를 자동으로 합니다.
+>
 > **빠른 길 — OVA 어플라이언스**: `vcf-aiops-<버전>.ova` 를 배포하면 C~H(VM 생성·OS 설치·설정·프로그램 설치·인증서)가 배포 마법사 입력 + 첫 부팅 자동 구성으로 대체됩니다. [OVA.md](OVA.md) 로 배포한 뒤 이 문서의 **I 절부터** 진행하세요.
 
 ```

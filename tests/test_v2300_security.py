@@ -360,7 +360,8 @@ def test_bad_path_rejected(tmp_path, fast, monkeypatch):
     import app.main as M
     from app.security.auth import PUBLIC, bad_path
     evil = "/static/login.js?/../app.js"                                           # GET /static/login.js%3F/../app.js 의 라우팅 경로(디코딩됨)
-    assert PUBLIC.match(_req(evil).url.path) and not PUBLIC.match(evil)            # url.path 는 '?' 뒤를 잘라 공개 경로로 보였음
+    assert not PUBLIC.match(evil)        # 옛 starlette 의 url.path 는 '?' 뒤를 잘라 공개 경로로 보였음(새 버전은 %3F 로 남김) — 어느 쪽이든 아래에서 차단 확인
+    del PUBLIC
     for p in (evil, "/static/../config.yaml", "/api/../metrics", "/api//users", "/static\\app.js", "/login#x", "/noc?x", "/a\x00b", "nope"):
         assert bad_path(p), p
     for p in ("/", "/login", "/static/app.js", "/api/connectors/vc#1/test", "/api/vks/a.b-c/pods", "/share/sr/" + "a" * 32, "/agents/install.sh", "/api/license/sources/vcenter:vc01"):

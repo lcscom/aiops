@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import csv
 import html
 import io
@@ -646,13 +647,13 @@ class Assessor:
             ev = LogEvent(source="vcenter", connector="assessment", message=f"구성 변경 — {c['target']} {c['area']} {c['key']}: {c['before'] or '(없음)'} → {c['after'] or '(없음)'}",
                           severity=c["severity"], host=c["target"] if c["area"] != "VM 설정" else "", entity=c["target"], kind="config",
                           attrs={"app": "config-drift", "area": c["area"], "key": c["key"], "no_anomaly": 0 if c["severity"] == "warning" else 1})
-            ingest(ev) if not asyncio.iscoroutinefunction(ingest) else await ingest(ev)
+            ingest(ev) if not inspect.iscoroutinefunction(ingest) else await ingest(ev)
             n += 1
         for v in verdicts[:100]:
             ev = LogEvent(source="vcenter", connector="assessment", message=f"보안 판정 {'악화' if v['worse'] else '개선'} — {v['target']} {v['id']} {v['title']}: {v['before']} → {v['after']}",
                           severity="warning" if v["worse"] else "info", host=v["target"], entity=v["target"], kind="config",
                           attrs={"app": "assessment", "check": v["id"], "no_anomaly": 0 if v["worse"] else 1})
-            ingest(ev) if not asyncio.iscoroutinefunction(ingest) else await ingest(ev)
+            ingest(ev) if not inspect.iscoroutinefunction(ingest) else await ingest(ev)
             n += 1
         self.state["last_events"] = n
 

@@ -2,6 +2,16 @@
 
 버전별 주요 변경 사항입니다(최신 순). 설치·운영 상세는 [docs/GUIDE.md](docs/GUIDE.md).
 
+## 2.48.1 — Ubuntu 24.04 / 26.04 원클릭 배포(deploy.sh · 배포 zip) · Python 3.14 호환
+
+| 항목 | 내용 |
+| --- | --- |
+| 배포 zip | `dist/vcf-aiops-ubuntu.zip`(+ `dist/SHA256SUMS`) — 프로그램 + `deploy.sh` + `deploy.env.example` + `DEPLOY.md`. 패치 때마다 GitHub `lcscom/aiops` 에 함께 갱신 |
+| deploy.sh | 사전 점검(OS 24.04·26.04·아키텍처·Python·vCPU·메모리·디스크·포트 충돌·이름 풀이·시간 동기화·pypi 연결·기존 설치 감지) → install.sh → 사후 점검(서비스·/readyz·수신 포트·버전·방화벽) → 결과 요약·전체 기록(`/var/log/vcf-aiops-deploy`, PAIS 키 가림). 대화형 / `--env deploy.env --yes` 무인 / `--check` / `--upgrade`(백업 후) / `--offline` / `--build-offline` / `--uninstall [--purge]`. 파일 하나만 받아 실행하면 GitHub 에서 zip 을 받아 SHA-256 확인 후 설치 |
+| Ubuntu 26.04 | install.sh 가 26.04 를 검증 버전으로 인식. Python 3.12·3.13·3.14 에서 전체 테스트 통과 — `asyncio.iscoroutinefunction`(3.16 제거 예정) → `inspect.iscoroutinefunction` |
+| 테스트 정리 | 날짜가 지나면 실패하던 VM 액티비티 테스트(고정 날짜 데이터를 30일 창으로 조회)와 starlette 새 버전의 경로 표현 차이에 걸리던 보안 테스트 전제를 고침 — 제품 동작 변화 없음 |
+| 확인 범위 | 이 작업 환경(Ubuntu 24.04 컨테이너)에서 zip 풀기 → 사전 점검 → 설치(systemd 단계 제외) → 설치본 기동(/readyz 200) → `--uninstall --purge` 까지 확인. 실제 VM(systemd)과 Ubuntu 26.04 실기 설치는 확인 못 함(컨테이너 이미지 받기가 막힘) |
+
 ## 2.48.0 — What-If 고도화: 시간에 따른 영향 · 단일 장애점 순위 · 연속 검증(새 실패 알림) · 점검 보고서
 
 | 항목 | 내용 |

@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import inspect
 import json
 import time
 from typing import Any
@@ -241,7 +242,7 @@ class DriftWatch:
             ev = LogEvent(source="vcenter", connector="drift", message=f"구성 변경 — {x['entity']} {x['label']}: {x['baseline'] or '(없음)'} → {x['current'] or '(없음)'}",
                           severity=x["severity"], host=x["entity"] if x["scope"] == "호스트" else "", entity=x["entity"], kind="config",
                           attrs={"app": "config-drift", "key": x["key"], "cluster": x.get("cluster", ""), "vcenter": vcenter, "no_anomaly": 0 if x["severity"] == "warning" else 1})
-            ingest(ev) if not asyncio.iscoroutinefunction(ingest) else await ingest(ev)
+            ingest(ev) if not inspect.iscoroutinefunction(ingest) else await ingest(ev)
 
     async def history(self, vcenter: str, days: int = 30, entity: str = "", limit: int = 2000) -> list[dict]:
         await self.ensure()

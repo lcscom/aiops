@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import copy
 import json
 import re
@@ -989,7 +990,7 @@ class CheckBot:
             msg = f"AI 체크봇: {r['kind']}({r['target']}) 검증 실패 — " + "; ".join(f["text"] for f in r["findings"] if f["sev"] == "fail")[:300]
             ev = LogEvent(source="aiops", connector="checkbot", message=msg, severity="warning", host="", entity=str(r["target"])[:120], kind="health",
                           attrs={"app": "checkbot", "scenario": r["id"], "type": r["type"]})
-            ingest(ev) if not asyncio.iscoroutinefunction(ingest) else await ingest(ev)
+            ingest(ev) if not inspect.iscoroutinefunction(ingest) else await ingest(ev)
 
     async def latest(self) -> dict[str, Any] | None:
         if self.last:

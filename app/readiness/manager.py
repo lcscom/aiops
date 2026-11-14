@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import ipaddress
 import json
 import re
@@ -328,7 +329,7 @@ class ReadinessManager:
             for sev, m in msgs:
                 ev = LogEvent(source="redfish", connector="readiness", message=m, severity=sev, host=name, entity=name, kind="config",
                               attrs={"app": "vcf-readiness", "scan": sid, "serial": serial, "no_anomaly": 0 if sev == "warning" else 1})
-                await ingest(ev) if asyncio.iscoroutinefunction(ingest) else ingest(ev)
+                await ingest(ev) if inspect.iscoroutinefunction(ingest) else ingest(ev)
 
     async def _prune(self, keep: int) -> None:
         if keep <= 0:

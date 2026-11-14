@@ -30,6 +30,9 @@ vCenter·ESXi·NSX·NSX ALB(Avi)·VKS·SDDC Manager·VCF Operations·SRM·서버
 
 ---
 
+
+> **Ubuntu 24.04 / 26.04 원클릭 배포**: `curl -fsSLO https://raw.githubusercontent.com/lcscom/aiops/main/scripts/linux/deploy.sh && sudo bash deploy.sh` — 배포 zip 은 [`dist/vcf-aiops-ubuntu.zip`](dist/), 방법은 [docs/DEPLOY-UBUNTU.md](docs/DEPLOY-UBUNTU.md)
+
 ## 목차
 
 1. [한눈에 보기](#한눈에-보기)
