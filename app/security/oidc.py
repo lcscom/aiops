@@ -15,13 +15,15 @@ import json
 import secrets
 import ssl
 import time
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 import html as _html
 
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+
+MFA_COOKIE = "aiops_mfa"          # 2.48.2 SSO 뒤 2단계 인증 대기 토큰(HttpOnly, /api/auth/mfa 경로 한정, 5분)
 
 ROLE_ORDER = ["admin", "operator", "auditor", "viewer"]
 
@@ -273,7 +275,10 @@ class Oidc:
                 return HTMLResponse(html, status_code=e.status_code)
             secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
             if res.get("mfa_required"):
-                resp = RedirectResponse(f"/login?mfa={res['mfa_token']}&user={uname}&next={nxt}", status_code=302)
+                # 2.48.2 MFA 토큰은 URL(브라우저 기록·접근 로그·Referer)에 싣지 않고 HttpOnly 임시 쿠키로 넘김
+                resp = RedirectResponse(f"/login?mfa=1&next={quote(nxt, safe='')}", status_code=302)
+                resp.set_cookie(MFA_COOKIE, res["mfa_token"], httponly=True, samesite="lax", secure=secure,
+                                path="/api/auth/mfa", max_age=300)
             else:
                 resp = RedirectResponse(nxt, status_code=302)
                 resp.set_cookie("aiops_sid", res["sid"], httponly=True, samesite="strict", secure=secure, path="/")

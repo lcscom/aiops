@@ -22,8 +22,8 @@
     if (c.ldap) { const h = $("#ldap-hint"); h.hidden = false; h.textContent = `AD 계정으로 로그인할 수 있습니다${c.ldap_domain ? ` (예: 홍길동 또는 ${c.ldap_domain}\\홍길동)` : ""}. 비상용 로컬 관리자도 사용 가능합니다.`; }
   }).catch(() => {});
 
-  // SSO 뒤 2단계 인증이 필요해 넘어온 경우(?mfa=<토큰>)
-  if (qs.get("mfa")) { mfaTok = qs.get("mfa"); user = qs.get("user") || ""; showMfa(); }
+  // SSO 뒤 2단계 인증이 필요해 넘어온 경우(?mfa=1) — 2.48.2 토큰은 URL이 아닌 HttpOnly 쿠키로 서버가 보관
+  if (qs.get("mfa") === "1") { mfaTok = ""; showMfa(); history.replaceState(null, "", location.pathname + (qs.get("next") ? "?next=" + encodeURIComponent(qs.get("next")) : "")); }
 
   // 이미 로그인된 상태에서 비밀번호 변경이 필요해 넘어온 경우
   if (qs.get("change")) {

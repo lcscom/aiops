@@ -322,7 +322,6 @@ window.AIOPS_I18N_EN = {
 "또는 OAuth Bearer 토큰": "or OAuth Bearer token",
 "또는 VCF 로그 전달 구성": "or configure VCF log forwarding",
 "또는 auth: vsphere 설정 필요": "or auth: vsphere setting required",
-"또는 sudo vcf-aiopsctl reset-admin 이 자동 처리)": "or sudo vcf-aiopsctl reset-admin handles it automatically)",
 "또는 이름)": "or name)",
 "또는 허용 IP 필요": "or allowed IP required",
 "레디": "Ready",
@@ -5267,5 +5266,12 @@ window.AIOPS_I18N_EN = {
 "전조 패턴": "Precursor pattern",
 "뒤따른 인시던트": "Following incident",
 "평소 대비": "vs. baseline",
-"앞선 시간": "Lead time"
+"앞선 시간": "Lead time",
+/* 2.48.2 */
+"로그인 전 정적 파일 노출(전체 사전·앱 스크립트)": "Static files exposed before login (full dictionary, app scripts)",
+"평문 HTTP → HTTPS 전환(앞단 경유)": "Plain HTTP → HTTPS redirect (via front proxy)",
+"인터넷 쪽 HTTP → HTTPS": "Internet-side HTTP → HTTPS",
+"login.html·로그인 공개 스크립트에서 제거": "Remove from login.html and public login scripts",
+"auth.PUBLIC 공개 목록 확인": "Check the auth.PUBLIC allow-list",
+"Cloudflare SSL/TLS › Edge Certificates › Always Use HTTPS 켜기": "Turn on Cloudflare SSL/TLS › Edge Certificates › Always Use HTTPS"
 };

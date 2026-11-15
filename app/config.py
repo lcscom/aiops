@@ -32,6 +32,7 @@ DEFAULTS: dict[str, Any] = {
         "retention_days": 7,
         "tls": {"enabled": "auto", "certfile": "certs/aiops.crt", "keyfile": "certs/aiops.key", "keyfile_password": ""},
         "trusted_proxies": "127.0.0.1",   # 리버스 프록시(IIS ARR 등) 뒤에 둘 때 X-Forwarded-* 신뢰 대상
+        "https_redirect": "proxy",        # 2.48.2 앞단(Cloudflare CF-Visitor·외부 이름의 X-Forwarded-Proto)이 http 라고 알리면 https 로 301/308. off 로 끔
         "access_log": False,
         "log_level": "info",
         "timeout_keep_alive": 15,

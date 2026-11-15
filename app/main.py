@@ -380,6 +380,45 @@ async def external_guard(request: Request, call_next):
         resp.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
         return resp
     return await call_next(request)
+
+
+# 2.48.2 평문 HTTP → HTTPS 강제. 앞단(Cloudflare·리버스 프록시)이 "방문자는 http 로 왔다"고 알려 준 요청만 돌려보냄.
+#   - Cloudflare: CF-Visitor {"scheme":"http"} (터널 포함)  - 그 밖의 프록시: X-Forwarded-Proto: http 이면서 외부 이름(server.external_hosts)
+#   - 장비·수집 연동 경로와 내부 직접 접속(앞단 없음)은 그대로. server.https_redirect: off 로 끔.
+_HTTPS_REDIRECT = str(CFG["server"].get("https_redirect", "proxy")).strip().lower()
+_HTTPS_SKIP = ("/healthz", "/readyz", "/metrics", "/api/ingest", "/agents/", "/api/ha/", "/api/redfish/events/")
+_HOST_OK = re.compile(r"^[A-Za-z0-9.-]{1,253}(:\d{1,5})?$")
+
+
+def plain_http_visitor(request) -> bool:
+    cv = (request.headers.get("cf-visitor") or "").replace(" ", "").lower()
+    if '"scheme":"http"' in cv:
+        return True
+    xf = (request.headers.get("x-forwarded-proto") or "").split(",")[0].strip().lower()
+    return xf == "http" and bool(_EXT_HOSTS) and external_host(request)
+
+
+def https_location(request) -> str | None:
+    host = (request.headers.get("x-forwarded-host") or request.headers.get("host") or "").split(",")[0].strip()
+    if not _HOST_OK.match(host):
+        return None
+    if host.endswith(":80"):
+        host = host[:-3]
+    raw = request.scope.get("raw_path") or (request.scope.get("path") or "/").encode()
+    qs = request.scope.get("query_string") or b""
+    return f"https://{host}{raw.decode('latin-1')}" + (f"?{qs.decode('latin-1')}" if qs else "")
+
+
+@app.middleware("http")
+async def https_redirect(request: Request, call_next):
+    if _HTTPS_REDIRECT != "off" and plain_http_visitor(request):
+        p = request.scope.get("path") or ""
+        if not (p in ("/healthz", "/readyz", "/metrics", "/api/ingest") or p.startswith(_HTTPS_SKIP)):
+            loc = https_location(request)
+            if loc:
+                code = 301 if request.method in ("GET", "HEAD") else 308      # 308: POST 본문을 평문으로 다시 보내지 않게 메서드 유지
+                return Response(status_code=code, headers={"Location": loc, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"})
+    return await call_next(request)
 app.mount("/static", StaticFiles(directory=STATIC), name="static")
 app.include_router(AUTH.router())
 from .security.oidc import Oidc  # noqa: E402

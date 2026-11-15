@@ -1,10 +1,10 @@
 {
  "package": "com.krvcf.vcfaiops",
- "name": "2.48.1",
- "code": 24801,
+ "name": "2.48.2",
+ "code": 24802,
  "size": 74690,
- "sha256": "2df89dbf945aaedefc2abffb1d63a17f54f27e1e5fa5e5c90f360f7f1605cb84",
+ "sha256": "72006a6620d470f6346b0a3113fbdf3ce50a473e26a6c9cf5073619ff60114cd",
  "cert_sha256": "987bf65a91dc60265898cb05da108e53a81a94486c684d4226107979a08e15a5",
  "min_android": "8.0",
- "built": "2026-11-15"
+ "built": "2026-11-16"
 }

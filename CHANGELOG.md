@@ -2,6 +2,17 @@
 
 버전별 주요 변경 사항입니다(최신 순). 설치·운영 상세는 [docs/GUIDE.md](docs/GUIDE.md).
 
+## 2.48.2 — 외부 보안 점검 지적 반영(로그인 전 공개 파일·HTTP→HTTPS·SSO MFA 토큰)
+
+| 항목 | 내용 |
+| --- | --- |
+| 로그인 전 공개 사전 축소 | 로그인 화면이 부르던 전체 영어 사전 `i18n-en.js`(약 380KB — 관리 화면 문구·AI 분석 프롬프트·내부 경로·ClusterRole 이름 포함)를 공개 목록에서 빼고 로그인 뒤로 옮김. 로그인 화면은 새 `i18n-login.js`(로그인 화면 문구·로그인 단계 서버 메시지·기본 배너 156개, 약 12KB)만 부름. 사전은 `scripts/dev/build-login-i18n.py` 로 생성하고, 테스트가 생성 결과와 파일이 같은지·내부 명령/경로/프롬프트가 없는지 확인 |
+| reset-admin 문구 | 화면 사전에서 `sudo vcf-aiopsctl reset-admin` 문구 삭제(CLI 안내는 서버 콘솔 출력에만 남음) |
+| HTTP → HTTPS | 앞단이 "방문자는 http 로 왔다"고 알리면(Cloudflare `CF-Visitor: {"scheme":"http"}`, 또는 외부 이름으로 들어온 `X-Forwarded-Proto: http`) 앱이 `https://` 로 돌려보냄 — GET·HEAD 301, 그 밖 308. `/healthz`·`/readyz`·`/metrics`·`/api/ingest`·에이전트·HA·Redfish 이벤트 경로와 앞단 없는 내부 직접 접속은 그대로. `server.https_redirect: off` 로 끔. 근본 조치는 Cloudflare **Always Use HTTPS**(엣지에서 원본까지 오지 않고 전환) |
+| SSO 뒤 MFA 토큰 | OIDC 로그인 뒤 2단계 인증으로 넘길 때 토큰을 URL(`?mfa=<토큰>&user=`)에 싣지 않고 HttpOnly 임시 쿠키(`aiops_mfa`, 경로 `/api/auth/mfa`, 5분)로 넘김. URL은 `?mfa=1` 만, 화면이 바로 주소에서도 지움. 인증 성공 시 쿠키 삭제. `next` 값도 URL 인코딩 |
+| 보안 점검 | 웹 머리글 영역에 `로그인 전 정적 파일 노출`·`평문 HTTP → HTTPS 전환(앞단 경유)` 추가, 로그인 화면 내부 정보 노출 검사가 로그인 화면이 부르는 공개 스크립트까지 확인. 외부 공개 영역에 `인터넷 쪽 HTTP → HTTPS(<이름>)`(실제 `http://<이름>/login` 응답) 추가 |
+| DNS(SPF·DMARC·CAA) | 앱 밖 설정이라 코드 변경 없음 — GUIDE §64 에 넣을 레코드 정리 |
+
 ## 2.48.1 — Ubuntu 24.04 / 26.04 원클릭 배포(deploy.sh · 배포 zip) · Python 3.14 호환
 
 | 항목 | 내용 |

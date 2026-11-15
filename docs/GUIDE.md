@@ -1625,3 +1625,21 @@ API: `POST /api/checkbot/refresh` · `GET /api/checkbot/inventory` · `POST /api
 - **연속 검증**: 6시간마다 자동 기록, 새로 실패한 시나리오는 이상징후로 알림. 구성 변경(호스트 추가·VM 이동·스위치 교체) 뒤에는 '기록 저장'으로 바로 확인.
 - **보고서**: '보고서(.md)'는 문서·메일에 붙이기 좋은 Markdown, 'CSV'는 엑셀용입니다.
 
+## 64. 외부 공개 보안 강화 (2.48.2)
+
+- **로그인 전 공개 파일**: 인증 없이 열리는 정적 파일은 `login.js`·`i18n.js`·`i18n-login.js`·`style.css`·글꼴뿐입니다. 전체 영어 사전(`i18n-en.js`)과 앱 스크립트는 로그인 뒤에서만 내려갑니다. 로그인 화면 문구를 바꾸면 `python3 scripts/dev/build-login-i18n.py` 로 `i18n-login.js` 를 다시 만드세요.
+- **HTTP → HTTPS**: Cloudflare 대시보드 › SSL/TLS › Edge Certificates › **Always Use HTTPS** 를 켜는 것이 기본입니다. 앱도 앞단이 http 라고 알린 요청은 https 로 돌려보냅니다(`server.https_redirect: proxy`, 기본). 다른 리버스 프록시라면 80 포트에서 `return 301 https://$host$request_uri;` 처럼 처리하고, `X-Forwarded-Proto` 를 넘기세요.
+- **SSO 뒤 2단계 인증**: 대기 토큰은 HttpOnly 쿠키로만 오가며 URL·브라우저 기록·접근 로그에 남지 않습니다.
+- **DNS(메일을 보내지 않는 도메인)**: 사칭 메일 차단용으로 아래를 등록하세요.
+
+| 이름 | 종류 | 값 |
+| --- | --- | --- |
+| `krvcf.com` (도메인 루트) | TXT | `v=spf1 -all` |
+| `_dmarc.krvcf.com` | TXT | `v=DMARC1; p=reject; sp=reject; adkim=s; aspf=s` |
+| `*._domainkey.krvcf.com` | TXT | `v=DKIM1; p=` (빈 공개 키 — 어떤 DKIM 서명도 유효하지 않음) |
+| `krvcf.com` | MX | `0 .` (Null MX, RFC 7505 — 메일을 받지 않음) |
+| `krvcf.com` | CAA | 쓰는 인증서 발급 기관만 `issue` 로 허용. Cloudflare 프록시 이름은 Universal SSL 발급 기관 CAA 를 Cloudflare 가 자동으로 더함 |
+
+  다른 서비스가 같은 도메인에서 메일을 보내면(예: 뉴스레터) SPF·DMARC 를 그 서비스에 맞게 바꿔야 합니다.
+- **관리 포털 앞단**: Cloudflare Zero Trust › Access › Applications 에 포털 이름을 등록하고 `server.cf_access` 로 원본에서도 Access JWT 를 확인하면, Access 를 거치지 않은 요청은 로그인 화면에도 닿지 않습니다(§보안 점검의 `인터넷 쪽 Access 관문`).
+

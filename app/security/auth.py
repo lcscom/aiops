@@ -100,7 +100,7 @@ ROUTE_RULES: list[tuple[str, str, str]] = [
     ("GET", r"^/api/assessment", "view"), ("POST", r"^/api/assessment/run$", "operate"), ("*", r"^/api/assessment", "settings"),
 ]
 ANON = {"user": "anonymous", "role": "admin", "display": "anonymous"}
-PUBLIC = re.compile(r"^/(login|healthz|readyz|robots\.txt|api/ha/peer|agents/[A-Za-z0-9_.-]+|api/redfish/events/[A-Za-z0-9_-]+|favicon\.ico|static/(login\.(js|css|html)|style\.css|i18n(-en)?\.js|fonts/.*)|api/auth/(login|config|mfa/verify|oidc/start|oidc/callback)|share/sr/[A-Za-z0-9_-]{30,64}(/(report\.pdf|logs\.zip))?)$")
+PUBLIC = re.compile(r"^/(login|healthz|readyz|robots\.txt|api/ha/peer|agents/[A-Za-z0-9_.-]+|api/redfish/events/[A-Za-z0-9_-]+|favicon\.ico|static/(login\.(js|css|html)|style\.css|i18n(-login)?\.js|fonts/.*)|api/auth/(login|config|mfa/verify|oidc/start|oidc/callback)|share/sr/[A-Za-z0-9_-]{30,64}(/(report\.pdf|logs\.zip))?)$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -696,9 +696,11 @@ class AuthManager:
             if request.headers.get("x-requested-with") != "aiops":
                 raise HTTPException(403, "CSRF 보호")
             b = await _json(request)
-            res = await mgr.mfa_verify(str(b.get("mfa_token", ""))[:128], str(b.get("code", ""))[:64], client_ip(request))
+            tok = str(b.get("mfa_token") or request.cookies.get("aiops_mfa") or "")[:128]   # 2.48.2 SSO 경유는 HttpOnly 쿠키로 받음
+            res = await mgr.mfa_verify(tok, str(b.get("code", ""))[:64], client_ip(request))
             resp = JSONResponse({k: v for k, v in res.items() if k != "sid"})
             cookie(resp, res["sid"], request)
+            resp.delete_cookie("aiops_mfa", path="/api/auth/mfa")
             return resp
 
         @r.get("/api/auth/mfa")

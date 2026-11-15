@@ -213,6 +213,15 @@ class Posture:
         except Exception:  # noqa: BLE001
             return None
 
+    async def _probe_internal_h(self, path: str, headers: dict) -> httpx.Response | None:
+        try:
+            tr = httpx.ASGITransport(app=self.app(), client=("127.0.0.1", 40000))
+            async with httpx.AsyncClient(transport=tr, base_url="http://posture.internal", timeout=10) as c:
+                h = {"x-aiops-probe": self.probe_token} if self.probe_token else {}
+                return await c.get(path, headers={**h, **headers}, follow_redirects=False)
+        except Exception:  # noqa: BLE001
+            return None
+
     async def _edge(self, host: str) -> dict:
         res: dict[str, Any] = {"reachable": False}
         try:
@@ -226,6 +235,14 @@ class Posture:
                        origin_blocked=r.status_code == 403 and origin_mark, cf=bool(r.headers.get("cf-ray")))
         except Exception as e:  # noqa: BLE001
             res["error"] = type(e).__name__
+
+        try:                                               # 2.48.2 http:// 로 들어오면 https 로 넘기는지
+            async with httpx.AsyncClient(timeout=8, follow_redirects=False) as c:
+                rh = await c.get(f"http://{host}/login")
+            res["http_status"] = rh.status_code
+            res["http_to_https"] = rh.status_code in (301, 302, 307, 308) and rh.headers.get("location", "").startswith("https://")
+        except Exception as e:  # noqa: BLE001
+            res["http_error"] = type(e).__name__
 
         def cert_days() -> int | None:
             ctx = ssl.create_default_context()
@@ -299,6 +316,10 @@ class Posture:
                               (" — 엣지 Access 없음, 원본 JWT 검증이 막는 중" if st_ == "warn" else "") +
                               ("" if e.get("cf") else " (Cloudflare 경유 아님?)"),
                               "" if gate else "Zero Trust › Access › Applications 에 이 이름 등록(또는 vcf-aiopsctl tunnel --access-allow)"))
+                if "http_status" in e:
+                    hok = bool(e.get("http_to_https"))
+                    out.append(it(f"edge_http:{host}", "ext", "medium", "pass" if hok else "fail", f"인터넷 쪽 HTTP → HTTPS({host})",
+                                  f"GET http://{host}/login → {e['http_status']}", "" if hok else "Cloudflare SSL/TLS › Edge Certificates › Always Use HTTPS 켜기"))
                 cd = e.get("cert_days")
                 if cd is not None:
                     out.append(it(f"edge_cert:{host}", "ext", "medium", "pass" if cd >= 14 else "fail", f"엣지 인증서 만료({host})", f"D-{cd}",
@@ -334,9 +355,27 @@ class Posture:
         weak = "unsafe-eval" in csp or re.search(r"script-src[^;]*'unsafe-inline'", csp)
         out.append(it("csp_script", "web", "medium", "warn" if weak else "pass", "CSP 스크립트 제한", "script-src 에 unsafe-inline/eval" if weak else "script-src 'self'"))
         body = r.text if r.status_code == 200 else ""
-        leak = [w for w in ("vcf-aiopsctl", "sudo ", "/etc/vcf-aiops", "/opt/vcf-aiops") if w in body]
+        for sp in re.findall(r'src="(/static/[A-Za-z0-9._-]+\.js)', body):     # 2.48.2 로그인 화면이 부르는 공개 스크립트까지
+            rr = await self._probe_internal(sp)
+            body += "\n" + (rr.text if rr is not None and rr.status_code == 200 else "")
+        leak = [w for w in ("vcf-aiopsctl", "sudo ", "/etc/vcf-aiops", "/opt/vcf-aiops", "ClusterRole", "너는 VMware") if w in body]
         out.append(it("login_leak", "web", "low", "fail" if leak else "pass", "로그인 화면 내부 정보 노출", ", ".join(leak) if leak else "내부 명령어·경로 없음",
-                      "login.html 에서 제거" if leak else ""))
+                      "login.html·로그인 공개 스크립트에서 제거" if leak else ""))
+        # 2.48.2 로그인 전 공개 정적 파일: 전체 화면 사전·앱 스크립트는 로그인 뒤여야 함
+        pub = []
+        for sp in ("/static/i18n-en.js", "/static/core.js"):
+            rr = await self._probe_internal(sp)
+            if rr is not None and rr.status_code == 200:
+                pub.append(sp)
+        out.append(it("static_public", "web", "medium", "fail" if pub else "pass", "로그인 전 정적 파일 노출(전체 사전·앱 스크립트)",
+                      ", ".join(pub) + " → 인증 없이 200" if pub else "i18n-en.js·core.js → 로그인 필요(로그인 화면은 i18n-login.js 만 공개)",
+                      "auth.PUBLIC 공개 목록 확인" if pub else ""))
+        rr = await self._probe_internal_h("/login", {"cf-visitor": '{"scheme":"http"}'})
+        ok = rr is not None and rr.status_code in (301, 308) and rr.headers.get("location", "").startswith("https://")
+        off = str((self.e.cfg.get("server") or {}).get("https_redirect", "proxy")).lower() == "off"
+        out.append(it("https_redirect", "web", "medium", "warn" if off else "pass" if ok else "fail", "평문 HTTP → HTTPS 전환(앞단 경유)",
+                      "server.https_redirect: off" if off else (f"http 방문 → {rr.status_code} {rr.headers.get('location', '')[:60]}" if rr is not None else "응답 없음"),
+                      "server.https_redirect 를 proxy 로 + Cloudflare SSL/TLS › Edge Certificates › Always Use HTTPS" if (off or not ok) else ""))
         tls = ((self.e.cfg.get("server") or {}).get("tls") or {})
         on = tls.get("enabled") in (True, "true") or (tls.get("enabled") == "auto" and Path(str(tls.get("certfile", ""))).is_file())
         out.append(it("origin_tls", "web", "low", "pass" if on else "warn", "원본 HTTPS(HSTS)", "HTTPS 직접 서빙" if on else "HTTP — HSTS 미적용",

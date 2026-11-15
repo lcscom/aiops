@@ -30,7 +30,8 @@ def test_every_menu_in_exactly_one_group():
 
 def test_i18n_public_for_login_page():
     from app.security.auth import PUBLIC
-    assert PUBLIC.match("/static/i18n.js") and PUBLIC.match("/static/i18n-en.js")
+    assert PUBLIC.match("/static/i18n.js") and PUBLIC.match("/static/i18n-login.js")
+    assert not PUBLIC.match("/static/i18n-en.js")          # 2.48.2 전체 사전은 로그인 뒤
     assert not PUBLIC.match("/static/app.js") and not PUBLIC.match("/static/i18n.js.map")
     assert '"대시보드": "Dashboard"' in (S / "i18n-en.js").read_text(encoding="utf-8")
     assert "AMBIG.has(m) || HANGUL.test(str[i - 1]" in (S / "i18n.js").read_text(encoding="utf-8")
