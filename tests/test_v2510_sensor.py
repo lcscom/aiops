@@ -112,11 +112,12 @@ def test_config_new_keys_clamped():
 def test_android_queue_watchdog_tone_sources():
     src = ROOT / "mobile/sensor/src/com/krvcf/aiopssensor"
     q = (src / "Queue.java").read_text(encoding="utf-8")
-    assert "queue.jsonl" in q and "renameTo" in q                       # 원자적 교체
+    assert "queue.jsonl" in q and "renameTo" in (src / "core/LineQueue.java").read_text(encoding="utf-8")   # 원자적 교체
     svc = (src / "SensorService.java").read_text(encoding="utf-8")
-    assert 'body.put("batch", batch)' in svc and "Queue.drop(this, batch.length())" in svc and 'Queue.add(this' in svc
+    assert 'body.put("batch", batch)' in svc and "Queue.drop(this, peeked)" in svc and 'Queue.add(this' in svc
     sm = (src / "SoundMeter.java").read_text(encoding="utf-8")
-    assert "goertzel" in sm and "Net." not in sm and "FileOutputStream" not in sm
+    assert "ToneDetector.tonal" in sm and "Net." not in sm and "FileOutputStream" not in sm
+    assert "goertzel" in (src / "core/ToneDetector.java").read_text(encoding="utf-8")
     m = (ROOT / "mobile/sensor/AndroidManifest.xml").read_text(encoding="utf-8")
     assert ".Watchdog" in m and "BIND_JOB_SERVICE" in m
     assert "Watchdog.schedule" in (src / "BootReceiver.java").read_text(encoding="utf-8")

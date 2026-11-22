@@ -160,6 +160,10 @@ final class Collector implements SensorEventListener, LocationListener {
             if (on.contains("battery")) {
                 if (lv >= 0 && sc > 0) put(o, "battery_pct", lv * 100.0 / sc);
                 put(o, "charging", b.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0 ? 1 : 0);
+                int hl = b.getIntExtra(BatteryManager.EXTRA_HEALTH, BatteryManager.BATTERY_HEALTH_UNKNOWN);   // 2.52.0 배터리 상태
+                put(o, "battery_health", hl == BatteryManager.BATTERY_HEALTH_GOOD ? 0
+                        : hl == BatteryManager.BATTERY_HEALTH_OVERHEAT || hl == BatteryManager.BATTERY_HEALTH_DEAD
+                          || hl == BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE ? 2 : hl == BatteryManager.BATTERY_HEALTH_UNKNOWN ? Double.NaN : 1);
             }
         }
         if (on.contains("battery") && Build.VERSION.SDK_INT >= 29) {
@@ -172,6 +176,12 @@ final class Collector implements SensorEventListener, LocationListener {
             } catch (Exception ignored) { }
         }
         return o;
+    }
+
+    /** 충전기에 꽂혀 있는가(측정 루프의 깨우기 방식 결정) */
+    static boolean plugged(Context c) {
+        Intent b = c.registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        return b != null && b.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) != 0;
     }
 
     static List<String> list(JSONArray a) {

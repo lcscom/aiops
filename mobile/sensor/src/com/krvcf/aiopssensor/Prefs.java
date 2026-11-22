@@ -35,6 +35,12 @@ final class Prefs {
 
     static void forget(Context c) { sp(c).edit().remove("token_e").remove("device").remove("config").remove("name").apply(); tok = null; }
 
+    /** 앱 버전 코드 — getLongVersionCode 는 Android 9(API 28)부터라 8.x 에서 죽지 않게 옛 필드를 씀 */
+    @SuppressWarnings("deprecation")
+    static long versionCode(Context c) {
+        try { return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionCode; } catch (Exception e) { return 0L; }
+    }
+
     static String versionName(Context c) {
         try { return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName; } catch (Exception e) { return "?"; }
     }

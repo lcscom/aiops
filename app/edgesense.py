@@ -63,6 +63,7 @@ METRICS: dict[str, dict] = {
     "tone_hz":     {"label": "경보음 주파수", "unit": "Hz", "range": (0, 8000)},
     "tonal_pct":   {"label": "경보음 비율", "unit": "%", "range": (0, 100)},
     "queued":      {"label": "폰 대기 중 측정값", "unit": "건", "range": (0, 100000)},
+    "battery_health": {"label": "배터리 상태", "unit": "", "range": (0, 2)},   # 2.52.0 0 정상·1 주의·2 과열·손상
 }
 SENSORS = ("temperature", "humidity", "pressure", "light", "sound", "motion", "location", "camera", "battery", "wifi", "proximity")
 
@@ -77,6 +78,7 @@ DEFAULT_THRESHOLDS: dict[str, dict] = {
     "thermal":     {"warn_hi": 3, "crit_hi": 5},
     "temp_rate":   {"warn_hi": 2.0, "crit_hi": 4.0},       # 2.51.0 10분에 2°C 이상 오르면 — 항온항습 정지 초기 신호(절대값보다 먼저)
     "alarm_tone":  {"crit_hi": 1},                        # 2.51.0 UPS·화재·항온항습기 경보음(삐-삐 반복 또는 지속음)
+    "battery_health": {"warn_hi": 1, "crit_hi": 2},       # 2.52.0 상시 충전 폰의 배터리 과열·손상(부풀음) — 분리·교체
 }
 DEFAULT_CONFIG: dict[str, Any] = {
     "interval_s": 60,                  # 측정·전송 간격
@@ -97,6 +99,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "buffer_max": 2880,                # 통신이 끊겼을 때 폰에 쌓아 둘 측정값 수(60초 간격이면 2일)
     "link_cluster": "",                # 관련 vSphere 클러스터 — 같은 인시던트로 묶임
     "link_rack": "",                   # 랙·자리 표시(화면용)
+    "local_alarm": True,               # 2.52.0 위험이면 폰에서도 진동·알림(통신이 끊겨도 현장에서 알 수 있게)
 }
 ID_RX = re.compile(r"^[a-z0-9][a-z0-9-]{2,40}$")
 
@@ -166,6 +169,7 @@ def merge_config(cfg: dict | None) -> dict:
     c["buffer_max"] = max(0, min(20000, int(c.get("buffer_max") or 0)))
     c["link_cluster"] = str(c.get("link_cluster") or "")[:80]
     c["link_rack"] = str(c.get("link_rack") or "")[:60]
+    c["local_alarm"] = bool(c.get("local_alarm"))
     if c.get("temp_source") not in ("auto", "ambient", "battery"):
         c["temp_source"] = "auto"
     return c
@@ -397,6 +401,14 @@ class EdgeSense:
         tsrc = self._derive(d, s, now)
         if body.get("info"):
             d["info"].update(self._info(body["info"]))
+        if isinstance(body.get("diag"), dict):                                 # 2.52.0 앱 진단(권한·절전·재시작·지연·저장 공간)
+            d["info"]["diag"] = {**self._diag(body["diag"]), "ts": now}
+        if isinstance(body.get("crash"), str) and body["crash"].strip():      # 2.52.0 앱 오류(잡지 못한 예외) 보고
+            text = body["crash"][:6000]
+            first = next((ln.strip() for ln in text.splitlines()[1:] if ln.strip()), text.splitlines()[0] if text else "")[:160]
+            d["info"]["crash"] = {"ts": now, "text": text, "first": first}
+            d["info"]["crashes"] = int(d["info"].get("crashes") or 0) + 1
+            await self._emit(d, "warning", f"현장 센서 앱 오류: {d['name']} — 앱이 비정상 종료 후 다시 시작됨({first})", kind="event")
         if back:
             d["info"]["backfill"] = {"count": back, "at": now}
             await self._emit(d, "info", f"현장 센서 밀린 값 수신: {d['name']} — 통신이 끊긴 동안 쌓인 측정값 {back}건", kind="event")
@@ -421,7 +433,90 @@ class EdgeSense:
         elif cfg["snap_interval_m"] and "camera" in cfg["sensors"]:
             last = await self.store.q1("SELECT MAX(ts) t FROM sensor_snaps WHERE dev=?", (d["id"],))
             snap = not last or not last["t"] or now - last["t"] >= cfg["snap_interval_m"] * 60
-        return {"ok": True, "config": cfg, "snap": snap, "server_time": now, "backfilled": back}
+        res = {"ok": True, "config": cfg, "snap": snap, "server_time": now, "backfilled": back}
+        up = self.app_update((d["info"].get("diag") or {}).get("app_code"))
+        if up:
+            res["app"] = up
+        return res
+
+    APP_JSON = Path(__file__).resolve().parent / "static" / "app" / "sensor.json"
+
+    def app_meta(self) -> dict:
+        try:
+            return json.loads(self.APP_JSON.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+
+    def app_update(self, have) -> dict | None:
+        """폰 앱 버전 코드보다 서버에 든 센서 APK 가 새것이면 {name, code, sha256}"""
+        m = self.app_meta()
+        try:
+            if m and have is not None and int(m.get("code") or 0) > int(have):
+                return {"name": m.get("name"), "code": m.get("code"), "sha256": m.get("sha256"), "size": m.get("size")}
+        except (TypeError, ValueError):
+            pass
+        return None
+
+    @staticmethod
+    def _diag(x: dict) -> dict:
+        out: dict[str, Any] = {}
+        for k in ("app_code", "sdk", "uptime_s", "starts", "restarts", "late_s", "fails", "queue", "free_mb"):
+            try:
+                if x.get(k) is not None:
+                    out[k] = int(float(x[k]))
+            except (TypeError, ValueError):
+                pass
+        for k in ("full", "battery_exempt", "plugged"):
+            if k in x:
+                out[k] = bool(x[k])
+        for k in ("app", "wake", "net", "last_error"):
+            if x.get(k) is not None:
+                out[k] = str(x[k])[:200]
+        p = x.get("perms") if isinstance(x.get("perms"), dict) else {}
+        out["perms"] = {k: bool(p.get(k)) for k in ("camera", "mic", "location", "notify") if k in p}
+        return out
+
+    def health(self, d: dict) -> dict:
+        """2.52.0 앱 안정성 점검 — 오래 두고 쓰는 데 걸림돌이 되는 것(진단 보고 기준)"""
+        g = (d.get("info") or {}).get("diag") or {}
+        c = d["config"]
+        if not g:
+            return {"level": "unknown", "issues": []}
+        iss: list[dict] = []
+
+        def add(lv: str, code: str, text: str) -> None:
+            iss.append({"level": lv, "code": code, "text": text})
+        if g.get("sdk", 0) >= 31 and g.get("battery_exempt") is False:
+            add("warn", "battery_opt", "배터리 최적화 제외 안 됨 — 앱이 멈추면 자동으로 다시 켜지지 않음(폰 앱 › 배터리 최적화 제외)")
+        if g.get("plugged") is False:
+            add("warn", "unplugged", "충전기에 꽂혀 있지 않음 — 측정 간격이 늘고 배터리가 떨어지면 멈춤")
+        perms = g.get("perms") or {}
+        need = {"camera": "camera", "sound": "mic", "location": "location"}
+        miss = [k for k, p in need.items() if k in c["sensors"] and perms.get(p) is False]
+        if miss:
+            add("warn", "perms", "권한 없음: " + ", ".join({"camera": "카메라", "sound": "마이크", "location": "위치"}[m] for m in miss) + " — 폰 앱에서 '권한 허용'")
+        if perms.get("notify") is False:
+            add("warn", "notify", "폰 알림이 꺼져 있음 — 폰 자체 경보가 울리지 않음")
+        if g.get("full") is False and any(k in c["sensors"] for k in ("camera", "sound", "location")) and not miss:
+            add("warn", "bg_start", "재부팅·자동 재시작 뒤 앱을 열지 않아 카메라·마이크·위치가 꺼져 있음 — 폰에서 앱을 한 번 열기")
+        if g.get("late_s", 0) > max(120, c["interval_s"] * 2):
+            add("warn", "late", f"측정이 예정보다 최대 {g['late_s']}초 늦게 깨어남 — 절전 설정 확인(충전기 연결·배터리 최적화 제외)")
+        if g.get("restarts", 0) >= 3:
+            add("warn", "restarts", f"측정 서비스가 {g['restarts']}번 다시 시작됨 — 제조사 절전 기능이 앱을 끄는지 확인")
+        if g.get("queue", 0) > 0:
+            add("info", "queue", f"폰에 밀린 값 {g['queue']}건 — 연결되면 보냄")
+        if 0 <= g.get("free_mb", 10 ** 6) < 200:
+            add("warn", "storage", f"폰 저장 공간 {g['free_mb']}MB — 밀린 값·사진 저장이 실패할 수 있음")
+        cr = (d.get("info") or {}).get("crash")
+        if cr and time.time() - cr.get("ts", 0) < 86400:
+            add("warn", "crash", f"최근 24시간 안에 앱 오류로 다시 시작됨 — {cr.get('first', '')}")
+        if self.app_update(g.get("app_code")):
+            add("info", "update", f"새 앱 버전 {self.app_meta().get('name')} — 폰 앱에서 '새 버전 설치'")
+        if g.get("last_error"):
+            add("info", "last_error", "최근 오류: " + g["last_error"])
+        lv = "warn" if any(i["level"] == "warn" for i in iss) else "ok"
+        return {"level": lv, "issues": iss, "diag": g, "reported": g.get("ts")}
+
 
     async def _presence(self, d: dict, before: float | None, after: float | None) -> None:
         """2.51.0 무인 전산실 출입 감지 — 꺼져 있던 방의 조명이 켜지면 이벤트(+사진)"""
@@ -579,7 +674,7 @@ class EdgeSense:
                 "last_ip": d.get("last_ip", ""), "info": d.get("info") or {}, "config": d["config"],
                 "latest": d.get("latest") or {}, "levels": {k: v for k, v in d["state"].items() if not k.startswith("_")},
                 "enroll_pending": bool(d.get("enroll_hash")) and (d.get("enroll_until") or 0) > now,
-                "snap_requested": d["id"] in self.snap_req}
+                "snap_requested": d["id"] in self.snap_req, "health": self.health(d)}
 
     def list(self) -> list[dict]:
         order = {"crit": 0, "offline": 1, "warn": 2, "pending": 3, "ok": 4, "retired": 5}

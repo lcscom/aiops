@@ -32,6 +32,8 @@ final class Snapper {
         final byte[][] out = {null};
         final CountDownLatch done = new CountDownLatch(1);
         final CameraDevice[] dev = {null};
+        final java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final CountDownLatch openState = new CountDownLatch(1);          // 열림·오류 콜백이 왔는가(늦게 열린 카메라를 놓치지 않으려고)
         ImageReader jpeg = null, prev = null;
         try {
             CameraManager cm = (CameraManager) ctx.getSystemService(Context.CAMERA_SERVICE);
@@ -52,24 +54,30 @@ final class Snapper {
             final ImageReader pr = ImageReader.newInstance(ps.getWidth(), ps.getHeight(), ImageFormat.YUV_420_888, 3);
             jpeg = jr; prev = pr;
             pr.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
-                @Override public void onImageAvailable(ImageReader r) { Image i = r.acquireLatestImage(); if (i != null) i.close(); }
+                @Override public void onImageAvailable(ImageReader r) {
+                    try { Image i = r.acquireLatestImage(); if (i != null) i.close(); } catch (Throwable ignored) { }   // 닫힌 뒤 늦게 온 콜백 무시
+                }
             }, h);
             jr.setOnImageAvailableListener(new ImageReader.OnImageAvailableListener() {
                 @Override public void onImageAvailable(ImageReader r) {
-                    Image i = r.acquireLatestImage();
-                    if (i == null) return;
+                    Image i = null;
                     try {
+                        i = r.acquireLatestImage();
+                        if (i == null) return;
                         ByteBuffer b = i.getPlanes()[0].getBuffer();
                         byte[] a = new byte[b.remaining()];
                         b.get(a);
                         out[0] = a;
-                    } finally { i.close(); done.countDown(); }
+                    } catch (Throwable ignored) {
+                    } finally { if (i != null) { try { i.close(); } catch (Throwable ignored) { } } done.countDown(); }
                 }
             }, h);
             final int q = quality, ori = orient == null ? 0 : orient;
             cm.openCamera(id, new CameraDevice.StateCallback() {
                 @Override public void onOpened(final CameraDevice d) {
                     dev[0] = d;
+                    openState.countDown();
+                    if (finished.get()) { try { d.close(); } catch (Throwable ignored) { } return; }   // 시간 초과 뒤 늦게 열림 → 바로 닫음
                     try {
                         d.createCaptureSession(Arrays.asList(pr.getSurface(), jr.getSurface()), new CameraCaptureSession.StateCallback() {
                             @Override public void onConfigured(final CameraCaptureSession s) {
@@ -96,8 +104,8 @@ final class Snapper {
                         }, h);
                     } catch (CameraAccessException e) { done.countDown(); }
                 }
-                @Override public void onDisconnected(CameraDevice d) { d.close(); done.countDown(); }
-                @Override public void onError(CameraDevice d, int e) { d.close(); done.countDown(); }
+                @Override public void onDisconnected(CameraDevice d) { openState.countDown(); try { d.close(); } catch (Throwable ignored) { } done.countDown(); }
+                @Override public void onError(CameraDevice d, int e) { openState.countDown(); try { d.close(); } catch (Throwable ignored) { } done.countDown(); }
             }, h);
             done.await(12, TimeUnit.SECONDS);
             return out[0];
@@ -106,10 +114,15 @@ final class Snapper {
         } catch (Exception e) {
             return null;
         } finally {
+            // 순서가 중요: 카메라 닫기 → 콜백 스레드 끝내고 기다리기 → 그 다음 ImageReader 닫기
+            // (먼저 닫으면 늦게 도착한 콜백이 닫힌 ImageReader 를 건드려 앱이 죽을 수 있음)
+            finished.set(true);
+            if (dev[0] == null) { try { openState.await(3, TimeUnit.SECONDS); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); } }
             try { if (dev[0] != null) dev[0].close(); } catch (Throwable ignored) { }
-            if (jpeg != null) jpeg.close();
-            if (prev != null) prev.close();
             ht.quitSafely();
+            try { ht.join(3000); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
+            try { if (jpeg != null) jpeg.close(); } catch (Throwable ignored) { }
+            try { if (prev != null) prev.close(); } catch (Throwable ignored) { }
         }
     }
 

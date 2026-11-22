@@ -70,10 +70,16 @@ final class Prefs {
     }
 
     static int versionCode(Context c) {
-        try { PackageInfo p = c.getPackageManager().getPackageInfo(c.getPackageName(), 0); return (int) p.getLongVersionCode(); } catch (Exception e) { return 0; }
+        // 2.52.0 getLongVersionCode 는 Android 9(API 28)부터 — 8.0/8.1 에서 NoSuchMethodError 로 죽지 않게 옛 필드 사용
+        try { PackageInfo p = c.getPackageManager().getPackageInfo(c.getPackageName(), 0); return versionCodeOf(p); } catch (Exception e) { return 0; }
     }
 
     static String versionName(Context c) {
         try { return c.getPackageManager().getPackageInfo(c.getPackageName(), 0).versionName; } catch (Exception e) { return "?"; }
+    }
+
+    @SuppressWarnings("deprecation")
+    static int versionCodeOf(PackageInfo p) {
+        return android.os.Build.VERSION.SDK_INT >= 28 ? (int) p.getLongVersionCode() : p.versionCode;
     }
 }

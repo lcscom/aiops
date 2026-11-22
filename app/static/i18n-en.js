@@ -5418,5 +5418,21 @@ window.AIOPS_I18N_EN = {
 "(같은 인시던트로 묶음)": "(grouped into the same incident)",
 "밀린 값": "Backfilled",
 "건 수신": " received",
-"감지": "Detected"
+"감지": "Detected",
+/* 2.52.0 */
+"앱 상태": "App status",
+"아직 진단 보고가 없습니다(앱 2.52.0 이상에서 보냄)": "No diagnostics yet (sent by app 2.52.0+)",
+"배터리 최적화 제외": "Battery optimization exempt",
+"카메라·마이크·위치 사용": "Camera/mic/location active",
+"알림": "Notifications",
+"깨우기": "Wake-up",
+"WakeLock(충전)": "WakeLock (charging)",
+"알람(배터리)": "Alarm (battery)",
+"앱 시작": "App starts",
+"저장 공간": "Storage",
+"장기 운영 점검 항목 모두 정상": "All long-run checks OK",
+"마지막 앱 오류": "Last app error",
+"앱 점검": "App check",
+"위험이면 폰에서도 진동·알림(통신 끊겨도)": "Vibrate/notify on the phone when critical (even offline)",
+"배터리 상태": "Battery health"
 };

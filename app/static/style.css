@@ -1902,3 +1902,7 @@ input.cc-dirty,select.cc-dirty{outline:2px solid #d9a400;outline-offset:1px}
 .sn-site { margin: 14px 0 8px; } .sn-site:first-of-type { margin-top: 4px; }
 .sn-pair { display: flex; gap: 6px; } .sn-pair input { width: 50%; }
 .sn-alertsnap { margin: 0 0 6px; font-size: 13px; }
+/* 2.52.0 현장 센서 앱 상태 */
+.sn-health { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; margin: 4px 0 8px; }
+.sn-issues { margin: 4px 0 10px 18px; font-size: 13px; } .sn-issues li.warn { color: #8a5a00; } .sn-issues li.info { color: var(--mute, #5f6b73); }
+.sn-crash { max-height: 220px; overflow: auto; font-size: 11px; background: var(--bg2, #f6f8fa); padding: 8px; border-radius: 6px; white-space: pre-wrap; }

@@ -35,7 +35,8 @@ import java.util.Locale;
 public class MainActivity extends Activity {
     private EditText server, code;
     private TextView state, values;
-    private Button enrollBtn, runBtn;
+    private Button enrollBtn, runBtn, updBtn;
+    private TextView checks;
     private final Handler ui = new Handler(Looper.getMainLooper());
 
     @Override protected void onCreate(Bundle b) {
@@ -67,6 +68,14 @@ public class MainActivity extends Activity {
         runBtn = button("", new View.OnClickListener() { @Override public void onClick(View v) { toggle(); } });
         root.addView(runBtn);
         root.addView(button("배터리 최적화 제외(꺼지지 않게)", new View.OnClickListener() { @Override public void onClick(View v) { battery(); } }));
+        root.addView(button("현장 표시 모드(큰 글씨 화면)", new View.OnClickListener() { @Override public void onClick(View v) {
+            startActivity(new Intent(MainActivity.this, DisplayActivity.class)); } }));
+        updBtn = button("", new View.OnClickListener() { @Override public void onClick(View v) { Updater.start(MainActivity.this); } });
+        updBtn.setVisibility(View.GONE);
+        root.addView(updBtn);
+        checks = text("", 13, "#33424B");
+        checks.setPadding(0, dp(10), 0, 0);
+        root.addView(checks);
         values = text("", 13, "#33424B");
         values.setTypeface(Typeface.MONOSPACE);
         values.setPadding(0, p, 0, 0);
@@ -84,7 +93,8 @@ public class MainActivity extends Activity {
 
     @Override protected void onResume() {
         super.onResume();
-        if (!Prefs.token(this).isEmpty() && Prefs.getLong(this, "run") == 1L) SensorService.start(this, true);   // 화면에서 다시 켜 카메라·마이크·위치 사용
+        // 화면에서 다시 켜 카메라·마이크·위치 사용 — 이미 전체 모드로 돌고 있으면 건드리지 않음(불필요한 재시작·중복 전송 방지)
+        if (!Prefs.token(this).isEmpty() && Prefs.getLong(this, "run") == 1L && (!SensorService.running || !SensorService.fullMode)) SensorService.start(this, true);
         tickUi();
     }
 
@@ -125,9 +135,29 @@ public class MainActivity extends Activity {
             if (!miss.isEmpty()) st.append("\n권한 없음: ").append(join(miss)).append(" — 해당 센서는 건너뜁니다");
         }
         state.setText(st.toString());
+        updBtn.setVisibility(enrolled && !SensorService.update.isEmpty() ? View.VISIBLE : View.GONE);
+        updBtn.setText("새 버전 " + SensorService.update + " 설치");
+        checks.setText(enrolled ? checklist() : "");
         String v = SensorService.lastValues;
         values.setText(v.isEmpty() ? "이 폰의 센서: " + Collector.available(this).toString().replace("\"", "").replace(",", ", ")
                 : v.replace(",\"", "\n\"").replace("\"", "").replace("{", "").replace("}", ""));
+    }
+
+    /** 2.52.0 안정 운영 점검표 — 오래 두고 쓰려면 모두 ✔ 이어야 함 */
+    private String checklist() {
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        boolean exempt = pm.isIgnoringBatteryOptimizations(getPackageName());
+        boolean plugged = Collector.plugged(this);
+        boolean notify = ((android.app.NotificationManager) getSystemService(NOTIFICATION_SERVICE)).areNotificationsEnabled();
+        StringBuilder b = new StringBuilder("안정 운영 점검\n");
+        b.append(exempt ? "✔" : "✖").append(" 배터리 최적화 제외").append(exempt ? "" : " — 꺼져 있으면 멈췄을 때 자동으로 다시 켜지지 않음").append('\n');
+        b.append(plugged ? "✔" : "✖").append(" 충전기 연결").append(plugged ? "" : " — 배터리로는 간격이 늘어나고 하루 안에 꺼질 수 있음").append('\n');
+        b.append(notify ? "✔" : "✖").append(" 알림 허용").append(notify ? "" : " — 현장 경보가 울리지 않음").append('\n');
+        List<String> miss = missing();
+        b.append(miss.isEmpty() ? "✔" : "✖").append(" 권한").append(miss.isEmpty() ? "" : " — 없음: " + join(miss)).append('\n');
+        b.append(SensorService.fullMode ? "✔" : "✖").append(" 카메라·마이크·위치 사용 중").append(SensorService.fullMode ? "" : " — 재부팅 뒤에는 앱을 한 번 열어야 함").append('\n');
+        b.append(Queue.size(this) == 0 ? "✔ 밀린 값 없음" : "… 밀린 값 " + Queue.size(this) + "건(연결되면 보냄)");
+        return b.toString();
     }
 
     private List<String> missing() {

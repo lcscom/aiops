@@ -9,11 +9,11 @@
   const ST = {ok: ["정상", "ok"], warn: ["경고", "warn"], crit: ["위험", "crit"], offline: ["무응답", "off"], pending: ["등록 대기", "pend"], retired: ["퇴역", "ret"]};
   const SENS = {temperature: "온도", humidity: "습도", pressure: "기압", light: "조도", sound: "소리 크기", motion: "진동·움직임", location: "위치",
     camera: "카메라", battery: "배터리·발열", wifi: "Wi-Fi 신호", proximity: "근접"};
-  const CHART = ["temp_c", "temp_rate", "humidity", "sound_db", "tonal_pct", "vibration", "battery_pct", "moved_m", "light", "pressure", "wifi_rssi", "battery_c"];
+  const CHART = ["temp_c", "temp_rate", "battery_health", "humidity", "sound_db", "tonal_pct", "vibration", "battery_pct", "moved_m", "light", "pressure", "wifi_rssi", "battery_c"];
   const T = ts => ts ? new Date(ts * 1000).toLocaleString("ko-KR", {month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit"}) : "—";
   const ago = ts => { if (!ts) return "—"; const s = Date.now() / 1000 - ts; return s < 90 ? `${Math.max(1, Math.round(s))}초 전` : s < 5400 ? `${Math.round(s / 60)}분 전` : s < 172800 ? `${Math.round(s / 3600)}시간 전` : T(ts); };
   const M = k => (st.meta && st.meta.metrics[k]) || {label: k, unit: ""};
-  const val = (k, v) => v == null ? "—" : k === "alarm_tone" ? (v ? "감지" : "없음") : `${k === "charging" ? (v ? "예" : "아니오") : (Math.round(v * 10) / 10).toLocaleString()}${M(k).unit ? " " + M(k).unit : ""}`;
+  const val = (k, v) => v == null ? "—" : k === "alarm_tone" ? (v ? "감지" : "없음") : k === "battery_health" ? (["정상", "주의", "과열·손상"][Math.round(v)] || v) : `${k === "charging" ? (v ? "예" : "아니오") : (Math.round(v * 10) / 10).toLocaleString()}${M(k).unit ? " " + M(k).unit : ""}`;
 
   async function load() {
     try {
@@ -48,6 +48,7 @@
       <small class="sub">${esc(d.site || "위치 미지정")}${(d.config || {}).link_rack ? " · " + esc(d.config.link_rack) : ""} · ${d.enrolled ? `마지막 ${ago(d.last_seen)}` : d.enroll_pending ? "등록 코드 발급됨" : "등록 코드 만료 — 재발급"}${d.info && d.info.model ? ` · ${esc(d.info.model)}` : ""}</small>
       ${L.alarm_tone ? `<div class="sn-alarm">🔔 경보음 감지 ${L.tone_hz ? `(약 ${L.tone_hz}Hz)` : ""}</div>` : ""}
       ${L.queued ? `<div class="sn-q">폰에 밀린 값 ${L.queued}건 — 통신 불안정</div>` : ""}
+      ${d.health && d.health.level === "warn" ? `<div class="sn-q">앱 점검 ${d.health.issues.filter(i => i.level === "warn").length}건 — ${esc(d.health.issues.find(i => i.level === "warn").text.split(" — ")[0])}</div>` : ""}
       <div class="sn-vals">${cell("temp_c", L.temp_src === "battery" ? "온도(추정)" : "온도")}${cell("humidity", "습도")}${cell("sound_db", "소리")}${cell("vibration", "진동")}${cell("battery_pct", "배터리")}${cell("moved_m", "이동")}${L.temp_rate != null && Math.abs(L.temp_rate) >= 0.5 ? cell("temp_rate", "상승 속도") : ""}</div>
       ${L.snap ? `<img class="sn-thumb" loading="lazy" alt="" src="/api/sensors/${encodeURIComponent(d.id)}/snap/${encodeURIComponent(L.snap)}">` : ""}
     </button>`;
@@ -71,6 +72,23 @@
       ${ref(t.crit_hi, "crit", "위험")}${ref(t.warn_hi, "warn", "경고")}${ref(t.warn_lo, "warn", "경고")}${ref(t.crit_lo, "crit", "위험")}
       <path d="${line}" class="sn-line"/>
       <text x="${P}" y="${H - 6}" class="sn-ax">${T(x0)}</text><text x="${W - 8}" y="${H - 6}" text-anchor="end" class="sn-ax">${T(x1)}</text></svg>`;
+  }
+
+  // 2.52.0 앱 안정성 점검(폰이 보내는 진단 기준)
+  function healthView(d) {
+    const h = d.health || {};
+    if (!h.diag) return d.enrolled ? `<h5>앱 상태</h5><p class="sub">아직 진단 보고가 없습니다(앱 2.52.0 이상에서 보냄)</p>` : "";
+    const g = h.diag, yes = v => v ? "✔" : "✖";
+    const cr = (d.info || {}).crash;
+    return `<h5>앱 상태 ${h.level === "warn" ? chip("warn") : chip("ok")} <small>앱 ${esc(g.app || "?")} · Android SDK ${g.sdk || "?"} · 보고 ${ago(h.reported)}</small></h5>
+      <div class="sn-health">
+        <span>${yes(g.battery_exempt)} 배터리 최적화 제외</span><span>${yes(g.plugged)} 충전 중</span><span>${yes(g.full)} 카메라·마이크·위치 사용</span>
+        <span>${yes((g.perms || {}).notify)} 알림</span><span>깨우기 ${g.wake === "wakelock" ? "WakeLock(충전)" : "알람(배터리)"}</span>
+        <span>가동 ${Math.round((g.uptime_s || 0) / 3600)}시간 · 재시작 ${g.restarts || 0} · 앱 시작 ${g.starts || 0}</span>
+        <span>최대 지연 ${g.late_s || 0}초</span><span>네트워크 ${esc(g.net || "?")}</span><span>저장 공간 ${g.free_mb != null ? g.free_mb + "MB" : "?"}</span>
+      </div>
+      ${h.issues.length ? `<ul class="sn-issues">${h.issues.map(i => `<li class="${i.level}">${esc(i.text)}</li>`).join("")}</ul>` : `<p class="sub">장기 운영 점검 항목 모두 정상</p>`}
+      ${cr ? `<details><summary>마지막 앱 오류 ${T(cr.ts)} — ${esc(cr.first)} <small>(누적 ${(d.info || {}).crashes || 1}회)</small></summary><pre class="sn-crash">${esc(cr.text)}</pre></details>` : ""}`;
   }
 
   function detailView(d) {
@@ -101,6 +119,7 @@
           <div class="sn-snaps">${(st.snaps || []).slice(0, 12).map(s => `<a href="/api/sensors/${encodeURIComponent(d.id)}/snap/${encodeURIComponent(s.name)}" target="_blank" rel="noopener" title="${T(s.ts)} · ${esc(s.reason)} · ${Math.round(s.size / 1024)}KB">
             <img loading="lazy" alt="${T(s.ts)}" src="/api/sensors/${encodeURIComponent(d.id)}/snap/${encodeURIComponent(s.name)}"><small>${T(s.ts)}</small></a>`).join("") || `<div class="empty small">${c.sensors.includes("camera") ? "사진 없음 — '지금 촬영' 또는 자동 촬영 간격 설정" : "카메라 꺼짐"}</div>`}</div></div>
       </div>
+      ${healthView(d)}
       <h5>추이 <a class="btn-sm" href="/api/sensors/${encodeURIComponent(d.id)}/export.csv?hours=${Math.max(st.hours, 24)}" download>CSV</a> <select id="sn-metric">${CHART.map(k => `<option value="${k}" ${k === st.metric ? "selected" : ""}>${esc(M(k).label)}</option>`).join("")}</select>
         <select id="sn-hours">${[[6, "6시간"], [24, "24시간"], [72, "3일"], [168, "7일"], [720, "30일"]].map(([h, l]) => `<option value="${h}" ${h === st.hours ? "selected" : ""}>${l}</option>`).join("")}</select></h5>
       ${spark(st.series, st.metric)}
@@ -121,6 +140,7 @@
           <label class="chk"><input type="checkbox" id="sn-soa" ${c.snap_on_alert ? "checked" : ""}> 경고·위험 때 자동 촬영</label>
           <label class="chk"><input type="checkbox" id="sn-tone" ${c.tone_detect ? "checked" : ""}> 경보음 감지(2~4kHz 반복음)</label>
           <label class="chk"><input type="checkbox" id="sn-pres" ${c.presence_alert ? "checked" : ""}> 출입 감지(꺼진 방 조명이 켜지면)</label>
+          <label class="chk"><input type="checkbox" id="sn-local" ${c.local_alarm ? "checked" : ""}> 위험이면 폰에서도 진동·알림(통신 끊겨도)</label>
         </div>
         <datalist id="sn-clusters">${(st.clusters || []).map(x => `<option value="${esc(x)}">`).join("")}</datalist>
         <div class="sn-sens">${(st.meta ? st.meta.sensors : []).map(s => `<label class="chk"><input type="checkbox" data-sens="${s}" ${c.sensors.includes(s) ? "checked" : ""}> ${esc(SENS[s] || s)}</label>`).join("")}</div>
@@ -190,7 +210,7 @@
             temp_offset_c: +$("#sn-toff").value, sound_offset_db: +$("#sn-soff").value,
             link_cluster: $("#sn-clu").value.trim(), link_rack: $("#sn-rack").value.trim(), buffer_max: +$("#sn-buf").value,
             presence_lux: [+$("#sn-plo").value, +$("#sn-phi").value], snap_on_alert: $("#sn-soa").checked, tone_detect: $("#sn-tone").checked,
-            presence_alert: $("#sn-pres").checked,
+            presence_alert: $("#sn-pres").checked, local_alarm: $("#sn-local").checked,
             sensors: [...b.querySelectorAll("[data-sens]")].filter(x => x.checked).map(x => x.dataset.sens), thresholds: {}};
           b.querySelectorAll("[data-th]").forEach(x => { (cfg.thresholds[x.dataset.th] = cfg.thresholds[x.dataset.th] || {})[x.dataset.f] = x.value === "" ? null : +x.value; });
           await A.api("PUT", `/api/sensors/${id}`, {config: cfg}); A.ok("설정 저장", "폰이 다음 전송 때 적용합니다"); await load();

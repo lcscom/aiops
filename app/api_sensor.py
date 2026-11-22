@@ -169,7 +169,9 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
     async def apk(request: Request, c: str = ""):
         if not S._loaded:
             await S.load()
-        if not S.code_device(c) or not APK.is_file():
+        h = request.headers.get("authorization") or ""
+        by_token = S.auth(h[7:].strip()) if h.lower().startswith("bearer ") else None     # 2.52.0 앱 자체 업데이트(장치 토큰)
+        if (not by_token and not S.code_device(c)) or not APK.is_file():
             raise HTTPException(404)
         await ENGINE.audit.log("sensor.apk_download", user="-", ip=client_ip(request), result="ok")
         return FileResponse(APK, media_type="application/vnd.android.package-archive", filename="vcf-aiops-sensor.apk",
