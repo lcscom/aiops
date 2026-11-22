@@ -151,6 +151,7 @@ async def lifespan(app: FastAPI):
     S.spawn("scnwatch", lambda: ENGINE.scnwatch.loop(beat("scnwatch")), critical=False, heartbeat=1800)   # 2.48.0 What-If 라이브러리 연속 검증
     S.spawn("vulncheck", lambda: ENGINE.vulncheck.loop(beat("vulncheck")), critical=False, heartbeat=1800)   # 2.43.0 내부 취약점 검증
     S.spawn("aiopsx", lambda: ENGINE.aiopsx.loop(beat("aiopsx")), critical=False, heartbeat=900)          # 2.45.0 전조 학습·조기 경보
+    S.spawn("sensors", lambda: ENGINE.sensors.loop(beat("sensors")), critical=False, heartbeat=120)        # 2.50.0 현장 센서 무응답 감시
     from .license.manager import scheduler as _lic_sched
     S.spawn("license", lambda: _lic_sched(ENGINE.license, beat("license")), critical=False, heartbeat=3600)
     S.spawn("collection", lambda: ENGINE.collection.watch(lambda: ENGINE.connectors), critical=False)
@@ -2873,6 +2874,11 @@ from .api_aiopsx import build_router as build_aiopsx  # noqa: E402
 
 ENGINE.aiopsx = AIOpsX(ENGINE, CFG.get("aiops") or {})
 app.include_router(build_aiopsx(ENGINE, ENGINE.aiopsx, who, audit))         # 2.45.0 AIOps 인사이트
+from .edgesense import EdgeSense  # noqa: E402
+from .api_sensor import build_router as build_sensor  # noqa: E402
+
+ENGINE.sensors = EdgeSense(ENGINE, CFG.get("sensors") or {}, DATA_DIR)
+app.include_router(build_sensor(ENGINE, ENGINE.sensors, who, audit, client_ip, _server_url))   # 2.50.0 현장 센서(안드로이드 폰)
 from .api_license import build_router as build_license  # noqa: E402
 
 app.include_router(build_license(ENGINE, CFG, who, audit))         # 2.16.0 라이선스 관리

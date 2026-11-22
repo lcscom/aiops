@@ -107,6 +107,10 @@ DEFAULT_RULES: list[Rule] = [
     # --- AIOps 자체: 플랫폼 상태(이벤트 루프 지연·수집 과부하·DB 쓰기·내부 작업·알림 발송·이중화)
     _r("platform_down", r"^플랫폼 장애:", "platform", "error", 0.9, ("aiops",)),
     _r("platform_warn", r"^플랫폼 경고:", "platform", "warning", 0.7, ("aiops",)),
+    # --- 현장 센서(안드로이드 폰, 2.50.0) — 온도·습도·소리·진동·위치 이동·배터리·무응답
+    _r("sensor_crit", r"^현장 센서 위험:", "environment", "critical", 0.9, ("sensor",)),
+    _r("sensor_warn", r"^현장 센서 경고:", "environment", "warning", 0.65, ("sensor",)),
+    _r("sensor_silent", r"^현장 센서 무응답:", "environment", "warning", 0.7, ("sensor",)),
     # --- VM 게스트·물리 서버 OS (Fluent Bit·rsyslog 에이전트) — Linux
     _r("agent_silent", r"^에이전트 무응답:", "agent", "warning", 0.7, ("vm", "baremetal")),
     _r("sli_breach", r"^성능 SLI 위반\((orange|red)\):", "performance", "warning", 0.7, ("vcenter",)),

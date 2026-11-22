@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 사내 랩(http·사설 인증서) 접속 허용. 사설 인증서는 앱에서 지문을 확인하고 '이 서버 신뢰'를 눌러야만 연결된다(Net.java). -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors><certificates src="system" /><certificates src="user" /></trust-anchors>
+    </base-config>
+</network-security-config>

@@ -178,6 +178,8 @@ DEFAULTS: dict[str, Any] = {
         "max_silence": {"syslog": 900, "ingest": 900, "snmp": 0, "vcflogs": 600},   # 0 = 침묵 감시 안 함
         "expected": [],              # 반드시 들어와야 하는 송신 장비 [{name, kind, match(정규식), max_silence}]
     },
+    # 2.50.0 현장 센서(안드로이드 폰) — 무응답 판정·보관 기간·장치당 사진 수·사진 최대 크기
+    "sensors": {"stale_seconds": 300, "retention_days": 30, "snaps_per_device": 300, "snap_max_bytes": 3145728},
     "auth": {
         "enabled": True,
         "session_idle_minutes": 10,       # 사용자 입력 기준 유휴 만료

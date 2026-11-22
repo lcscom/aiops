@@ -92,6 +92,8 @@ ROUTE_RULES: list[tuple[str, str, str]] = [
     ("DELETE", r"^/api/lifecycle/drift/baseline/\d+$", "operate"), ("PUT", r"^/api/lifecycle/versions/table$", "settings"), ("DELETE", r"^/api/lifecycle/versions/table$", "settings"),
     ("PUT", r"^/api/lifecycle/certs/settings$", "settings"),
     ("GET", r"^/api/savings", "view"), ("PUT", r"^/api/savings/prices$", "operate"), ("POST", r"^/api/change/review$", "view"),
+    ("GET", r"^/api/sensors", "view"), ("POST", r"^/api/sensors/[a-z0-9-]+/snap-now$", "operate"),
+    ("POST", r"^/api/sensors", "settings"), ("PUT", r"^/api/sensors/", "settings"), ("DELETE", r"^/api/sensors/", "settings"),
     ("GET", r"^/api/aiops/", "view"), ("POST", r"^/api/aiops/(feedback|precursors/learn)$", "operate"),
     ("GET", r"^/api/vuln", "view"), ("POST", r"^/api/vuln/run$", "operate"), ("PUT", r"^/api/vuln/settings$", "settings"), ("POST", r"^/api/vuln/kev$", "operate"),
     ("POST", r"^/api/capacity/esa$", "view"),
@@ -102,7 +104,7 @@ ROUTE_RULES: list[tuple[str, str, str]] = [
 from .guard import LoginGuard, REQ_EDGE, SCHEMA as GUARD_SCHEMA  # noqa: E402
 
 ANON = {"user": "anonymous", "role": "admin", "display": "anonymous"}
-PUBLIC = re.compile(r"^/(login|healthz|readyz|robots\.txt|\.well-known/security\.txt|api/ha/peer|agents/[A-Za-z0-9_.-]+|api/redfish/events/[A-Za-z0-9_-]+|favicon\.ico|static/(login\.(js|css|html)|style\.css|i18n(-login)?\.js|fonts/.*)|api/auth/(login|config|mfa/verify|oidc/start|oidc/callback)|share/sr/[A-Za-z0-9_-]{30,64}(/(report\.pdf|logs\.zip))?)$")
+PUBLIC = re.compile(r"^/(login|healthz|readyz|robots\.txt|\.well-known/security\.txt|api/sensor/(enroll|push|snap|app\.apk)|sensor-setup|api/ha/peer|agents/[A-Za-z0-9_.-]+|api/redfish/events/[A-Za-z0-9_-]+|favicon\.ico|static/(login\.(js|css|html)|style\.css|i18n(-login)?\.js|fonts/.*)|api/auth/(login|config|mfa/verify|oidc/start|oidc/callback)|share/sr/[A-Za-z0-9_-]{30,64}(/(report\.pdf|logs\.zip))?)$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
