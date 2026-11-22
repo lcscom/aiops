@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
         setContentView(sv);
         handle(getIntent());
         refresh();
+        if (!Prefs.token(this).isEmpty()) Watchdog.schedule(this);
     }
 
     @Override protected void onNewIntent(Intent i) { super.onNewIntent(i); handle(i); }
@@ -206,7 +207,7 @@ public class MainActivity extends Activity {
                     Prefs.putLong(MainActivity.this, "info_sent", 0L);
                     Prefs.putLong(MainActivity.this, "run", 1L);
                     ui.post(new Runnable() { @Override public void run() {
-                        toast("등록 완료 — 측정을 시작합니다"); askPerms(); SensorService.start(MainActivity.this, true); refresh();
+                        toast("등록 완료 — 측정을 시작합니다"); askPerms(); SensorService.start(MainActivity.this, true); Watchdog.schedule(MainActivity.this); refresh();
                     } });
                     return;
                 }

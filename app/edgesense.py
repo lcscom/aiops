@@ -57,6 +57,12 @@ METRICS: dict[str, dict] = {
     "lon":         {"label": "경도", "unit": "", "range": (-180, 180)},
     "loc_acc":     {"label": "위치 정확도", "unit": "m", "range": (0, 100000)},
     "moved_m":     {"label": "기준 위치에서 거리", "unit": "m", "range": (0, 1e7)},
+    # 2.51.0
+    "temp_rate":   {"label": "온도 상승 속도", "unit": "°C/10분", "range": (-50, 50)},
+    "alarm_tone":  {"label": "경보음", "unit": "", "range": (0, 1)},
+    "tone_hz":     {"label": "경보음 주파수", "unit": "Hz", "range": (0, 8000)},
+    "tonal_pct":   {"label": "경보음 비율", "unit": "%", "range": (0, 100)},
+    "queued":      {"label": "폰 대기 중 측정값", "unit": "건", "range": (0, 100000)},
 }
 SENSORS = ("temperature", "humidity", "pressure", "light", "sound", "motion", "location", "camera", "battery", "wifi", "proximity")
 
@@ -69,6 +75,8 @@ DEFAULT_THRESHOLDS: dict[str, dict] = {
     "battery_pct": {"warn_lo": 20, "crit_lo": 10},
     "moved_m":     {"warn_hi": 200, "crit_hi": 1000},
     "thermal":     {"warn_hi": 3, "crit_hi": 5},
+    "temp_rate":   {"warn_hi": 2.0, "crit_hi": 4.0},       # 2.51.0 10분에 2°C 이상 오르면 — 항온항습 정지 초기 신호(절대값보다 먼저)
+    "alarm_tone":  {"crit_hi": 1},                        # 2.51.0 UPS·화재·항온항습기 경보음(삐-삐 반복 또는 지속음)
 }
 DEFAULT_CONFIG: dict[str, Any] = {
     "interval_s": 60,                  # 측정·전송 간격
@@ -81,6 +89,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "temp_source": "auto",             # auto(주변 센서 있으면 그것, 없으면 배터리) | ambient | battery
     "temp_offset_c": -3.0,             # 배터리 온도 → 주변 온도 근사 보정(충전 중 발열 감안, 온도계와 비교해 조정)
     "thresholds": DEFAULT_THRESHOLDS,
+    # 2.51.0
+    "snap_on_alert": True,             # 경고·위험이 되면 자동으로 사진 1장(카메라 켜져 있을 때)
+    "presence_alert": False,           # 조명이 꺼진 방에서 갑자기 켜지면 '출입 감지'(무인 전산실용)
+    "presence_lux": [10, 60],          # [꺼짐 판단 이하, 켜짐 판단 이상] lux
+    "tone_detect": True,               # 소리에서 경보음(2~4kHz 반복음) 감지
+    "buffer_max": 2880,                # 통신이 끊겼을 때 폰에 쌓아 둘 측정값 수(60초 간격이면 2일)
+    "link_cluster": "",                # 관련 vSphere 클러스터 — 같은 인시던트로 묶임
+    "link_rack": "",                   # 랙·자리 표시(화면용)
 }
 ID_RX = re.compile(r"^[a-z0-9][a-z0-9-]{2,40}$")
 
@@ -139,6 +155,17 @@ def merge_config(cfg: dict | None) -> dict:
     c["temp_offset_c"] = max(-20.0, min(20.0, float(c["temp_offset_c"])))
     c["sensors"] = [s for s in c["sensors"] if s in SENSORS]
     c["camera"] = "front" if c.get("camera") == "front" else "back"
+    c["snap_on_alert"] = bool(c.get("snap_on_alert"))
+    c["presence_alert"] = bool(c.get("presence_alert"))
+    c["tone_detect"] = bool(c.get("tone_detect"))
+    try:
+        lo, hi = (float(x) for x in (c.get("presence_lux") or [10, 60])[:2])
+        c["presence_lux"] = [max(0.0, min(lo, 1000.0)), max(lo + 1, min(hi, 100000.0))]
+    except (TypeError, ValueError):
+        c["presence_lux"] = [10.0, 60.0]
+    c["buffer_max"] = max(0, min(20000, int(c.get("buffer_max") or 0)))
+    c["link_cluster"] = str(c.get("link_cluster") or "")[:80]
+    c["link_rack"] = str(c.get("link_rack") or "")[:60]
     if c.get("temp_source") not in ("auto", "ambient", "battery"):
         c["temp_source"] = "auto"
     return c
@@ -159,6 +186,8 @@ class EdgeSense:
         self.snap_req: dict[str, float] = {}           # 장치 → '지금 촬영' 요청 시각
         self._loaded = False
         self._enroll_fail: dict[str, list[float]] = {}
+        self._temps: dict[str, list[tuple[float, float]]] = {}   # 온도 상승 속도 계산용(30분)
+        self.snap_why: dict[str, str] = {}                       # 촬영 요청 사유(경보·출입)
 
     # ------------------------------------------------------------------ 적재
     async def load(self) -> None:
@@ -320,11 +349,9 @@ class EdgeSense:
                 out[k] = str(v)[:60]
         return out
 
-    async def push(self, d: dict, body: dict, ip: str) -> dict:
-        now = time.time()
-        s = clean_samples(body.get("samples") or {})
+    def _derive(self, d: dict, s: dict, ts: float) -> str:
+        """보정·파생값(온도 기준, 기준 위치 거리, 온도 상승 속도) — 온도 출처를 돌려줌"""
         cfg = d["config"]
-        # 온도 — 주변 온도 센서 우선(auto), 없으면 배터리 온도 + 보정값
         src, tsrc = cfg.get("temp_source", "auto"), ""
         if "ambient_c" in s and src in ("auto", "ambient"):
             s["temp_c"], tsrc = s["ambient_c"], "ambient"
@@ -338,16 +365,51 @@ class EdgeSense:
                 s["moved_m"] = round(haversine_m((home[0], home[1]), (s["lat"], s["lon"])), 1)
                 if s.get("loc_acc", 0) > 150 and s["moved_m"] < s["loc_acc"]:   # 부정확한 위치로 이동 오판 방지
                     s["moved_m"] = 0.0
+        if "temp_c" in s:                                                     # 2.51.0 온도 상승 속도(°C/10분) — 8~20분 전 값과 비교
+            hist = self._temps.setdefault(d["id"], [])
+            hist.append((ts, s["temp_c"]))
+            hist[:] = [h for h in hist if ts - h[0] <= 1800]
+            old = [h for h in hist if 480 <= ts - h[0] <= 1200]
+            if old:
+                t0, v0 = old[0]
+                s["temp_rate"] = round((s["temp_c"] - v0) / (ts - t0) * 600, 2)
+        return tsrc
+
+    async def push(self, d: dict, body: dict, ip: str) -> dict:
+        now = time.time()
+        cfg = d["config"]
+        # 2.51.0 통신이 끊긴 동안 폰에 쌓인 측정값(batch: [{ts, samples}]) — 저장만 하고 판정은 최신값으로
+        batch = body.get("batch") if isinstance(body.get("batch"), list) else []
+        back = 0
+        rows: list[tuple] = []
+        for it in batch[:3000]:
+            try:
+                ts = float(it.get("ts"))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if not (now - 7 * 86400 <= ts <= now + 60):
+                continue
+            bs = clean_samples(it.get("samples") or {})
+            self._derive(d, bs, ts)
+            rows += [(d["id"], ts, k, v) for k, v in bs.items()]
+            back += 1
+        s = clean_samples(body.get("samples") or {})
+        tsrc = self._derive(d, s, now)
         if body.get("info"):
             d["info"].update(self._info(body["info"]))
-        keep = {k: d["latest"][k] for k in ("snap", "snap_ts") if k in (d.get("latest") or {})}
+        if back:
+            d["info"]["backfill"] = {"count": back, "at": now}
+            await self._emit(d, "info", f"현장 센서 밀린 값 수신: {d['name']} — 통신이 끊긴 동안 쌓인 측정값 {back}건", kind="event")
+        keep = {k: d["latest"][k] for k in ("snap", "snap_ts", "alert_snap", "alert_snap_ts") if k in (d.get("latest") or {})}
+        prev_light = (d.get("latest") or {}).get("light")
         d["latest"] = {**keep, **s, "ts": now, **({"temp_src": tsrc} if tsrc else {})}
         self._tsrc = tsrc
         d["last_seen"], d["last_ip"] = now, ip
-        rows = [(d["id"], now, k, v) for k, v in s.items()]
+        rows += [(d["id"], now, k, v) for k, v in s.items()]
         if rows:
             await self.store.xm("INSERT INTO sensor_samples(dev,ts,m,v) VALUES(?,?,?,?)", rows)
         await self._judge(d, s)
+        await self._presence(d, prev_light, s.get("light"))
         if d["state"].get("_offline"):
             d["state"].pop("_offline")
             await self._emit(d, "info", f"현장 센서 복구: {d['name']} — 측정값 수신 재개", kind="health")
@@ -359,7 +421,25 @@ class EdgeSense:
         elif cfg["snap_interval_m"] and "camera" in cfg["sensors"]:
             last = await self.store.q1("SELECT MAX(ts) t FROM sensor_snaps WHERE dev=?", (d["id"],))
             snap = not last or not last["t"] or now - last["t"] >= cfg["snap_interval_m"] * 60
-        return {"ok": True, "config": cfg, "snap": snap, "server_time": now}
+        return {"ok": True, "config": cfg, "snap": snap, "server_time": now, "backfilled": back}
+
+    async def _presence(self, d: dict, before: float | None, after: float | None) -> None:
+        """2.51.0 무인 전산실 출입 감지 — 꺼져 있던 방의 조명이 켜지면 이벤트(+사진)"""
+        c = d["config"]
+        if not c.get("presence_alert") or before is None or after is None:
+            return
+        lo, hi = c["presence_lux"]
+        if before <= lo and after >= hi:
+            where = f" — {d['site']}" if d.get("site") else ""
+            await self._emit(d, "warning", f"현장 센서 경고: {d['name']}{where} 조명 켜짐 — 출입 의심({before:g} → {after:g} lx)",
+                             kind="alarm", metric="presence", value=after)
+            self._want_snap(d, "출입")
+
+    def _want_snap(self, d: dict, why: str) -> None:
+        c = d["config"]
+        if c.get("snap_on_alert") and "camera" in c["sensors"] and d["id"] not in self.snap_req:
+            self.snap_req[d["id"]] = time.time()
+            self.snap_why[d["id"]] = why
 
     async def snap(self, d: dict, data: bytes, reason: str = "") -> dict:
         if len(data) > self.snap_max:
@@ -371,10 +451,16 @@ class EdgeSense:
         p.mkdir(parents=True, exist_ok=True)
         name = time.strftime("%Y%m%d-%H%M%S", time.localtime(now)) + f"-{secrets.token_hex(2)}.jpg"
         (p / name).write_bytes(data)
-        why = "요청" if self.snap_req.pop(d["id"], None) else (reason[:20] or "주기")
+        alert_why = self.snap_why.pop(d["id"], "")
+        why = (alert_why or "요청") if self.snap_req.pop(d["id"], None) else (reason[:20] or "주기")
         await self.store.x("INSERT INTO sensor_snaps(dev,ts,name,size,reason) VALUES(?,?,?,?,?)", (d["id"], now, name, len(data), why))
         d["latest"]["snap"] = name
         d["latest"]["snap_ts"] = now
+        if alert_why:                                                        # 2.51.0 경보 사진 — 같은 개체 이벤트로 남겨 인시던트에서 바로 보이게
+            d["latest"]["alert_snap"], d["latest"]["alert_snap_ts"] = name, now
+            await self._save(d)
+            await self._emit(d, "info", f"현장 센서 경보 사진: {d['name']} — {alert_why} 직후 촬영({len(data) // 1024}KB)", kind="event",
+                             snap=name, snap_url=f"/api/sensors/{d['id']}/snap/{name}")
         await self._prune_snaps(d["id"])
         return {"ok": True, "name": name}
 
@@ -416,9 +502,16 @@ class EdgeSense:
             else:
                 limit = self._limit_text(t, lv, s[m])
                 where = f" — {d['site']}" if d.get("site") else ""
+                if m == "alarm_tone":
+                    text = f"경보음 감지(약 {s.get('tone_hz', 0):g}Hz, {s.get('tonal_pct', 0):g}%) — UPS·화재·항온항습기 경보 확인"
+                elif m == "temp_rate":
+                    text = f"온도 급상승 {s[m]:+g}°C/10분 (지금 {s.get('temp_c', '?')}°C, {limit}) — 항온항습·냉방 확인"
+                else:
+                    text = f"{label} {val} ({limit})"
                 await self._emit(d, "critical" if lv == "crit" else "warning",
-                                 f"현장 센서 {'위험' if lv == 'crit' else '경고'}: {d['name']}{where} {label} {val} ({limit})",
+                                 f"현장 센서 {'위험' if lv == 'crit' else '경고'}: {d['name']}{where} {text}",
                                  kind="alarm", metric=m, value=s[m])
+                self._want_snap(d, f"{meta['label']} {'위험' if lv == 'crit' else '경고'}")
 
     @staticmethod
     def _limit_text(t: dict, lv: str, v: float) -> str:
@@ -432,7 +525,8 @@ class EdgeSense:
         try:
             self.e.submit(LogEvent(source="sensor", connector="edgesense", message=msg, severity=sev, host=d["name"],
                                    entity=f"sensor:{d['id']}", kind=kind,
-                                   attrs={"device": d["id"], "site": d.get("site", ""), "category": "environment", **attrs}))
+                                   attrs={"device": d["id"], "site": d.get("site", ""), "category": "environment",
+                                          **({"cluster": d["config"]["link_cluster"]} if d["config"].get("link_cluster") else {}), **attrs}))
         except Exception:  # noqa: BLE001
             pass
 

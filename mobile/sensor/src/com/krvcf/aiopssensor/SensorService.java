@@ -33,6 +33,7 @@ public class SensorService extends Service {
     private Collector col;
     private boolean full;                              // 카메라·마이크·위치까지 쓸 수 있는 시작인가(앱 화면에서 시작)
     private int fails = 0;
+    private JSONObject lastSample;
 
     static void start(Context c, boolean fromUi) {
         Intent i = new Intent(c, SensorService.class).putExtra("ui", fromUi);
@@ -122,24 +123,33 @@ public class SensorService extends Service {
     private void tick() {
         JSONObject cfg = cfg(this);
         int interval = Math.max(15, cfg.optInt("interval_s", 60));
+        lastSample = null;
         PowerManager.WakeLock wl = ((PowerManager) getSystemService(POWER_SERVICE)).newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "aiops:sensor");
         wl.acquire(60000L);
         try {
             List<String> on = sensors(cfg, full);
             JSONObject s = col.snapshot(on);
+            lastSample = s;
             if (on.contains("sound")) {
-                double[] db = SoundMeter.measure(Math.max(1, Math.min(10, cfg.optInt("sound_window_s", 3))));
+                boolean tone = cfg.optBoolean("tone_detect", true);
+                double[] db = SoundMeter.measure(Math.max(1, Math.min(10, cfg.optInt("sound_window_s", 3))), tone);
                 if (db != null) {
                     double off = cfg.optDouble("sound_offset_db", 90);
                     s.put("sound_db", Math.round((db[0] + off) * 10) / 10.0);
                     s.put("sound_peak", Math.round((db[1] + off) * 10) / 10.0);
+                    if (tone) { s.put("alarm_tone", db[4]); s.put("tonal_pct", db[2]); if (db[3] > 0) s.put("tone_hz", db[3]); }
                 }
             }
+            int queued = Queue.size(this);
+            if (queued > 0) s.put("queued", queued);
             JSONObject body = new JSONObject().put("samples", s);
+            JSONArray batch = Queue.peek(this, 300);                   // 2.51.0 통신이 끊긴 동안 쌓인 값 — 300건씩 함께 보냄
+            if (batch.length() > 0) body.put("batch", batch);
             if (Prefs.getLong(this, "info_sent") != 1L) body.put("info", MainActivity.info(this));
             Net.Res r = Net.json(this, "/api/sensor/push", body.toString());
             if (r.code == 200) {
                 JSONObject j = new JSONObject(r.body);
+                if (batch.length() > 0) Queue.drop(this, batch.length());
                 Prefs.putLong(this, "info_sent", 1L);
                 JSONObject nc = j.optJSONObject("config");
                 if (nc != null) {
@@ -161,11 +171,14 @@ public class SensorService extends Service {
                 return;
             } else {
                 fails++;
+                if (r.code >= 500 || r.code == 429) Queue.add(this, s, cfg.optInt("buffer_max", 2880));
+                else if ((r.code == 400 || r.code == 413) && batch.length() > 0) Queue.drop(this, batch.length());   // 서버가 거부한 묶음은 버림(무한 재시도 방지)
                 note("서버 응답 " + r.code + " — " + r.body.replaceAll("\\s+", " ").substring(0, Math.min(80, r.body.length())));
             }
         } catch (Exception e) {
             fails++;
-            note("전송 실패(" + fails + "회): " + e.getClass().getSimpleName() + " " + (e.getMessage() == null ? "" : e.getMessage()));
+            if (lastSample != null) Queue.add(this, lastSample, cfg.optInt("buffer_max", 2880));
+            note("전송 실패(" + fails + "회, 쌓인 값 " + Queue.size(this) + "건): " + e.getClass().getSimpleName() + " " + (e.getMessage() == null ? "" : e.getMessage()));
         } finally {
             if (wl.isHeld()) wl.release();
         }

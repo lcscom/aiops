@@ -171,6 +171,11 @@ class IncidentManager:
         """(correlation_key, cluster, primary_entity)"""
         if ev.get("source") == "aiops":
             return "collection", "", ev.get("host", "")
+        if ev.get("source") == "sensor":                   # 2.51.0 현장 센서 — 연결한 클러스터 또는 같은 사이트끼리 묶음
+            at = ev.get("attrs") or {}
+            if at.get("cluster"):
+                return f"cluster:{at['cluster']}", at["cluster"], ev.get("host", "")
+            return f"site:{(at.get('site') or ev.get('host') or 'sensor').lower()}", "", ev.get("host", "")
         ctx = self.e.resolve(ev.get("entity") or "") or self.e.resolve(ev.get("host") or "")
         if ctx and ctx.get("cluster"):
             return f"cluster:{ctx['cluster']}", ctx["cluster"], ctx["name"]

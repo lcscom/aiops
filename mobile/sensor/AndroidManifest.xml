@@ -42,6 +42,7 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Self-hosted environmental monitoring: periodic sensor readings to the owner's own server" />
         </service>
+        <service android:name=".Watchdog" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="false" />
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />

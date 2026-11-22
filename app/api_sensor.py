@@ -71,7 +71,7 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
     @r.post("/api/sensor/push")
     async def push(request: Request):
         d = dev_of(request)
-        return await S.push(d, await body_json(request), client_ip(request))
+        return await S.push(d, await body_json(request, 1024 * 1024), client_ip(request))   # 밀린 값 묶음 포함
 
     @r.post("/api/sensor/snap")
     async def snap(request: Request, reason: str = ""):
@@ -89,6 +89,17 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
             await S.load()
         return {"items": S.list(), "now": time.time(), "stale_seconds": S.stale}
 
+    @r.get("/api/sensors/clusters")
+    async def clusters():
+        """2.51.0 연결할 vSphere 클러스터 이름(수집된 vCenter 토폴로지)"""
+        out: set[str] = set()
+        try:
+            for c in ENGINE._vcenters():
+                out.update((getattr(c, "topology", {}) or {}).get("clusters", {}).keys())
+        except Exception:  # noqa: BLE001
+            pass
+        return {"items": sorted(x for x in out if x)}
+
     @r.get("/api/sensors/meta")
     async def meta():
         return {"metrics": METRICS, "sensors": SENSORS, "defaults": DEFAULT_CONFIG}
@@ -105,6 +116,25 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
         if metric not in METRICS:
             raise HTTPException(400, "알 수 없는 측정값")
         return {"metric": metric, "points": await S.series(did, metric, hours)}
+
+    @r.get("/api/sensors/{did}/export.csv")
+    async def export(did: str, hours: float = 168):
+        """2.51.0 측정값 CSV(시각·측정값·값) — 감사·보고용"""
+        d = g(did)
+        since = time.time() - max(1, min(24 * 30, hours)) * 3600
+        rows = await ENGINE.store.q("SELECT ts, m, v FROM sensor_samples WHERE dev=? AND ts>=? ORDER BY ts, m", (did, since))
+        import csv
+        import io
+        buf = io.StringIO()
+        w = csv.writer(buf)
+        w.writerow(["time", "metric", "label", "value", "unit"])
+        for x in rows:
+            meta = METRICS.get(x["m"], {"label": x["m"], "unit": ""})
+            w.writerow([time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(x["ts"])), x["m"], meta["label"], x["v"], meta["unit"]])
+        from fastapi.responses import Response
+        name = f"sensor-{d['id']}-{time.strftime('%Y%m%d')}.csv"
+        return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
+                        headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @r.get("/api/sensors/{did}/snaps")
     async def snaps(did: str, limit: int = 60):

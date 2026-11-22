@@ -10,5 +10,6 @@ public class BootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context c, Intent i) {
         if (Prefs.token(c).isEmpty() || Prefs.getLong(c, "run") != 1L) return;
         SensorService.start(c, false);
+        Watchdog.schedule(c);
     }
 }

@@ -1896,3 +1896,9 @@ input.cc-dirty,select.cc-dirty{outline:2px solid #d9a400;outline-offset:1px}
 .sn-sens { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0 10px; } .sn-th input { width: 90px; }
 .sn-enroll { display: grid; grid-template-columns: 220px 1fr; gap: 18px; align-items: start; } .sn-qr svg { width: 100%; height: auto; background: #fff; }
 .sn-code { font-size: 18px; letter-spacing: 1px; } @media (max-width: 700px) { .sn-enroll { grid-template-columns: 1fr; } }
+/* 2.51.0 현장 센서 고도화 */
+.sn-alarm { margin-top: 6px; padding: 4px 8px; border-radius: 6px; background: #fde3e1; color: #a3231b; font-weight: 600; font-size: 13px; }
+.sn-q { margin-top: 6px; padding: 3px 8px; border-radius: 6px; background: #fff4d6; color: #8a5a00; font-size: 12px; }
+.sn-site { margin: 14px 0 8px; } .sn-site:first-of-type { margin-top: 4px; }
+.sn-pair { display: flex; gap: 6px; } .sn-pair input { width: 50%; }
+.sn-alertsnap { margin: 0 0 6px; font-size: 13px; }
