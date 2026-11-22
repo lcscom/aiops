@@ -93,6 +93,7 @@ ROUTE_RULES: list[tuple[str, str, str]] = [
     ("PUT", r"^/api/lifecycle/certs/settings$", "settings"),
     ("GET", r"^/api/savings", "view"), ("PUT", r"^/api/savings/prices$", "operate"), ("POST", r"^/api/change/review$", "view"),
     ("GET", r"^/api/sensors", "view"), ("POST", r"^/api/sensors/[a-z0-9-]+/snap-now$", "operate"),
+    ("POST", r"^/api/sensors/maint(/\d+/end)?$", "operate"),
     ("POST", r"^/api/sensors", "settings"), ("PUT", r"^/api/sensors/", "settings"), ("DELETE", r"^/api/sensors/", "settings"),
     ("GET", r"^/api/aiops/", "view"), ("POST", r"^/api/aiops/(feedback|precursors/learn)$", "operate"),
     ("GET", r"^/api/vuln", "view"), ("POST", r"^/api/vuln/run$", "operate"), ("PUT", r"^/api/vuln/settings$", "settings"), ("POST", r"^/api/vuln/kev$", "operate"),

@@ -38,6 +38,8 @@ CREATE INDEX IF NOT EXISTS ix_sensor_snaps ON sensor_snaps(dev, ts);
 CREATE TABLE IF NOT EXISTS sensor_cmds(id TEXT PRIMARY KEY, dev TEXT, op TEXT, args TEXT, by TEXT, created REAL, sent REAL DEFAULT 0,
   done REAL DEFAULT 0, ok INTEGER, msg TEXT DEFAULT '');
 CREATE INDEX IF NOT EXISTS ix_sensor_cmds ON sensor_cmds(dev, created);
+CREATE TABLE IF NOT EXISTS sensor_events(dev TEXT, ts REAL, sev TEXT, metric TEXT, msg TEXT);
+CREATE INDEX IF NOT EXISTS ix_sensor_events ON sensor_events(dev, ts);
 """
 
 # 2.53.0 원격 설정 명령 — 폰이 다음 전송 때 가져가 실행(서버가 폰에 직접 접속하지 않음). owner=기기 소유자일 때만 실제 적용
@@ -121,12 +123,30 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "link_cluster": "",                # 관련 vSphere 클러스터 — 같은 인시던트로 묶임
     "link_rack": "",                   # 랙·자리 표시(화면용)
     "local_alarm": True,               # 2.52.0 위험이면 폰에서도 진동·알림(통신이 끊겨도 현장에서 알 수 있게)
+    # 2.54.0
+    "baseline": True,                  # 평소와 다름 — 최근 14일 같은 시간대 값과 비교
+    "baseline_k": 4.0,                 # 평소 변동 폭(강건 표준편차)의 몇 배를 벗어나면 경고
+    "ambient_offset_c": 0.0,           # 주변 온도 센서 보정(보정 도우미가 채움)
+    "humidity_offset": 0.0,            # 습도 센서 보정(보정 도우미가 채움)
 }
+RESERVED = {"maint", "bulk", "summary", "meta", "clusters", "addresses", "commands"}   # 2.54.0 API 경로와 겹치는 장치 ID 금지
 ID_RX = re.compile(r"^[a-z0-9][a-z0-9-]{2,40}$")
+
+# 2.54.0 학습 기준선 — 이 측정값은 '그 시간대 평소'와 비교(최소 폭: 센서 잡음보다 작은 차이로 울리지 않게)
+BASE_METRICS: dict[str, float] = {"temp_c": 0.7, "humidity": 3.0, "sound_db": 4.0}
+BASE_DAYS = 14             # 학습 기간
+BASE_MIN_DAYS = 3          # 이 시간대 값이 있는 날이 이만큼은 돼야 판정
+BASE_CONSEC = 3            # 연속 몇 번 벗어나야 경고(한 번 튀는 값 무시)
+CALIB = {"temp": "온도", "humidity": "습도", "sound": "소리"}
 
 
 def _h(s: str) -> str:
     return hashlib.sha256(s.encode()).hexdigest()
+
+
+def _median(v: list[float]) -> float:
+    n = len(v)
+    return v[n // 2] if n % 2 else (v[n // 2 - 1] + v[n // 2]) / 2
 
 
 def haversine_m(a: tuple[float, float], b: tuple[float, float]) -> float:
@@ -191,6 +211,10 @@ def merge_config(cfg: dict | None) -> dict:
     c["link_cluster"] = str(c.get("link_cluster") or "")[:80]
     c["link_rack"] = str(c.get("link_rack") or "")[:60]
     c["local_alarm"] = bool(c.get("local_alarm"))
+    c["baseline"] = bool(c.get("baseline"))
+    c["baseline_k"] = max(2.5, min(10.0, float(c.get("baseline_k") or 4.0)))
+    c["ambient_offset_c"] = max(-10.0, min(10.0, float(c.get("ambient_offset_c") or 0)))
+    c["humidity_offset"] = max(-30.0, min(30.0, float(c.get("humidity_offset") or 0)))
     if c.get("temp_source") not in ("auto", "ambient", "battery"):
         c["temp_source"] = "auto"
     return c
@@ -213,6 +237,7 @@ class EdgeSense:
         self._enroll_fail: dict[str, list[float]] = {}
         self._temps: dict[str, list[tuple[float, float]]] = {}   # 온도 상승 속도 계산용(30분)
         self.snap_why: dict[str, str] = {}                       # 촬영 요청 사유(경보·출입)
+        self._bcnt: dict[tuple[str, str], list[int]] = {}        # 2.54.0 기준선 연속 이탈·복귀 횟수
 
     # ------------------------------------------------------------------ 적재
     async def load(self) -> None:
@@ -247,7 +272,7 @@ class EdgeSense:
             raise ValueError("이름 필요")
         base = re.sub(r"[^a-z0-9-]+", "-", name.lower()).strip("-")[:30] or "phone"
         did = base if len(base) >= 3 else f"phone-{base}"
-        while did in self.devs:
+        while did in self.devs or did in RESERVED:
             did = f"{base[:24]}-{secrets.token_hex(2)}"
         d = {"id": did, "name": name, "site": (site or "").strip()[:60], "note": (note or "").strip()[:200],
              "created": time.time(), "info": {}, "config": merge_config(config), "state": {}, "latest": {}}
@@ -379,9 +404,11 @@ class EdgeSense:
         cfg = d["config"]
         src, tsrc = cfg.get("temp_source", "auto"), ""
         if "ambient_c" in s and src in ("auto", "ambient"):
-            s["temp_c"], tsrc = s["ambient_c"], "ambient"
+            s["temp_c"], tsrc = round(s["ambient_c"] + float(cfg.get("ambient_offset_c") or 0), 2), "ambient"
         elif "battery_c" in s and src in ("auto", "battery"):
             s["temp_c"], tsrc = round(s["battery_c"] + float(cfg.get("temp_offset_c", 0)), 2), "battery"
+        if "humidity" in s and cfg.get("humidity_offset"):
+            s["humidity"] = round(max(0.0, min(100.0, s["humidity"] + float(cfg["humidity_offset"]))), 2)
         home = d["info"].get("home")
         if "lat" in s and "lon" in s:
             if not home and s.get("loc_acc", 999) <= 100:                   # 첫 정확한 위치를 기준으로
@@ -444,6 +471,7 @@ class EdgeSense:
         if rows:
             await self.store.xm("INSERT INTO sensor_samples(dev,ts,m,v) VALUES(?,?,?,?)", rows)
         await self._judge(d, s)
+        await self._baseline_check(d, s, now)
         await self._presence(d, prev_light, s.get("light"))
         if d["state"].get("_offline"):
             d["state"].pop("_offline")
@@ -721,6 +749,12 @@ class EdgeSense:
         return f"기준 하한 {lo:g}" if lo is not None else "기준 초과"
 
     async def _emit(self, d: dict, sev: str, msg: str, kind: str = "alarm", **attrs: Any) -> None:
+        if kind in ("alarm", "health"):                                     # 2.54.0 장치별 경보 기록(주간 요약·화면 기록용)
+            try:
+                await self.store.x("INSERT INTO sensor_events(dev,ts,sev,metric,msg) VALUES(?,?,?,?,?)",
+                                   (d["id"], time.time(), sev, str(attrs.get("metric") or ("offline" if kind == "health" else "")), msg[:300]))
+            except Exception:  # noqa: BLE001
+                pass
         try:
             self.e.submit(LogEvent(source="sensor", connector="edgesense", message=msg, severity=sev, host=d["name"],
                                    entity=f"sensor:{d['id']}", kind=kind,
@@ -740,6 +774,7 @@ class EdgeSense:
         if not self._loaded:
             await self.load()
         last_prune = 0.0
+        last_base = 0.0
         while True:
             await asyncio.sleep(20)
             beat()
@@ -757,6 +792,198 @@ class EdgeSense:
             if now - last_prune > 3600:
                 last_prune = now
                 await self.store.x("DELETE FROM sensor_samples WHERE ts < ?", (now - self.keep_days * 86400,))
+                await self.store.x("DELETE FROM sensor_events WHERE ts < ?", (now - max(self.keep_days, 90) * 86400,))
+            if now - last_base > 3600:                                       # 2.54.0 기준선 다시 학습(1시간마다)
+                last_base = now
+                for d in list(self.devs.values()):
+                    if d.get("enrolled") and not d.get("retired") and d["config"].get("baseline"):
+                        try:
+                            await self.build_baseline(d, now)
+                        except Exception:  # noqa: BLE001
+                            pass
+
+    # ------------------------------------------------------------------ 2.54.0 평소와 다름(학습 기준선)
+    async def build_baseline(self, d: dict, now: float | None = None) -> dict:
+        """최근 14일, 10분 평균을 시간대(현지 0~23시)별로 모아 중앙값·강건 표준편차(1.4826×MAD) — 데이터가 모자란 시간대는 비움"""
+        now = now or time.time()
+        ms = tuple(BASE_METRICS)
+        rows = await self.store.q(
+            "SELECT m, CAST(ts/600 AS INTEGER) b, AVG(v) v FROM sensor_samples WHERE dev=? AND ts>=? AND m IN (%s) GROUP BY m, b" % ",".join("?" * len(ms)),
+            (d["id"], now - BASE_DAYS * 86400, *ms))
+        buck: dict[tuple[str, int], list[tuple[str, float]]] = {}
+        for r in rows:
+            lt = time.localtime(r["b"] * 600)
+            buck.setdefault((r["m"], lt.tm_hour), []).append((time.strftime("%Y%m%d", lt), float(r["v"])))
+        out: dict[str, dict[str, list[float]]] = {}
+        days: set[str] = set()
+        for (m, hr), vals in buck.items():
+            dset = {x[0] for x in vals}
+            days |= dset
+            if len(dset) < BASE_MIN_DAYS or len(vals) < 12:
+                continue
+            v = sorted(x[1] for x in vals)
+            med = _median(v)
+            mad = _median(sorted(abs(x - med) for x in v))
+            out.setdefault(m, {})[str(hr)] = [round(med, 2), round(max(1.4826 * mad, BASE_METRICS[m]), 2)]
+        d["info"]["baseline"] = {"built": now, "days": len(days), "m": out}
+        await self._save(d)
+        return d["info"]["baseline"]
+
+    def baseline_at(self, d: dict, m: str, ts: float) -> tuple[float, float] | None:
+        b = (((d.get("info") or {}).get("baseline") or {}).get("m") or {}).get(m) or {}
+        x = b.get(str(time.localtime(ts).tm_hour))
+        return (x[0], x[1]) if x else None
+
+    async def _baseline_check(self, d: dict, s: dict, now: float) -> None:
+        c, st = d["config"], d["state"]
+        if not c.get("baseline"):
+            for m in BASE_METRICS:                                           # 끄면 걸려 있던 '평소와 다름'은 정리
+                if st.pop("base_" + m, None):
+                    await self._ack(d, "base_" + m)
+            return
+        k = float(c.get("baseline_k") or 4.0)
+        for m in BASE_METRICS:
+            if m not in s:
+                continue
+            key, b = "base_" + m, self.baseline_at(d, m, now)
+            cnt = self._bcnt.setdefault((d["id"], m), [0, 0])
+            if not b or st.get(m) in ("warn", "crit"):                       # 기준값 경보가 이미 울리고 있으면 겹쳐 울리지 않음
+                cnt[0] = 0
+                continue
+            med, sp = b
+            z = (s[m] - med) / sp
+            meta = METRICS[m]
+            if st.get(key, "ok") == "ok":
+                cnt[0] = cnt[0] + 1 if abs(z) >= k else 0
+                if cnt[0] >= BASE_CONSEC:
+                    cnt[0] = cnt[1] = 0
+                    st[key] = "warn"
+                    where = f" — {d['site']}" if d.get("site") else ""
+                    await self._emit(d, "warning", f"현장 센서 경고: {d['name']}{where} 평소와 다름 — {meta['label']} {s[m]:g}{meta['unit']}, "
+                                     f"이 시간대 평소 {med:g}±{sp:g}{meta['unit']} ({z:+.1f}배)", kind="alarm", metric=key, value=s[m], baseline=med)
+                    self._want_snap(d, f"{meta['label']} 평소와 다름")
+            else:
+                cnt[1] = cnt[1] + 1 if abs(z) < k * 0.6 else 0
+                if cnt[1] >= BASE_CONSEC:
+                    cnt[0] = cnt[1] = 0
+                    st[key] = "ok"
+                    await self._emit(d, "info", f"현장 센서 정상화: {d['name']} {meta['label']} 평소 범위로 돌아옴({s[m]:g}{meta['unit']})", kind="alarm", metric=key)
+                    await self._ack(d, key)
+
+    # ------------------------------------------------------------------ 2.54.0 보정 도우미
+    async def calibrate(self, did: str, what: str, reference: float | None, by: str = "", from_device: str = "") -> dict:
+        """온도계·소음계·습도계(또는 같은 자리의 주변 온도 센서가 있는 폰) 값과 지금 값을 비교해 보정값을 계산·저장"""
+        d = self._get(did)
+        if what not in CALIB:
+            raise ValueError("보정 대상: temp | humidity | sound")
+        L, c, now = d.get("latest") or {}, d["config"], time.time()
+        if not L.get("ts") or now - L["ts"] > max(600, self.interval(d) * 3):
+            raise ValueError("최근 측정값이 없습니다 — 폰이 값을 보내는 중일 때 보정하세요")
+        src = ""
+        if from_device:
+            o = self.devs.get(from_device)
+            if not o or o["id"] == did:
+                raise ValueError("비교할 장치가 없습니다")
+            if what != "temp" or (o.get("latest") or {}).get("temp_src") != "ambient":
+                raise ValueError("비교 장치는 주변 온도 센서가 있는 폰이어야 합니다(온도만)")
+            if now - ((o.get("latest") or {}).get("ts") or 0) > 600:
+                raise ValueError("비교 장치의 최근 값이 없습니다")
+            reference, src = float(o["latest"]["temp_c"]), o["name"]
+        try:
+            ref = float(reference)
+        except (TypeError, ValueError):
+            raise ValueError("기준 값(온도계·소음계 숫자)을 입력하세요") from None
+        if what == "temp":
+            if not -40 <= ref <= 90:
+                raise ValueError("온도 범위 밖")
+            if L.get("temp_src") == "battery" and "battery_c" in L:
+                key, measured, old = "temp_offset_c", L.get("temp_c"), float(c["temp_offset_c"])
+                new = ref - float(L["battery_c"])
+            elif L.get("temp_src") == "ambient" and "temp_c" in L:
+                key, measured, old = "ambient_offset_c", L["temp_c"], float(c.get("ambient_offset_c") or 0)
+                new = old + (ref - float(L["temp_c"]))
+            else:
+                raise ValueError("온도 값이 없습니다")
+        elif what == "humidity":
+            if "humidity" not in L:
+                raise ValueError("이 폰은 습도 센서가 없습니다")
+            if not 0 <= ref <= 100:
+                raise ValueError("습도 범위 밖")
+            key, measured, old = "humidity_offset", L["humidity"], float(c.get("humidity_offset") or 0)
+            new = old + (ref - float(L["humidity"]))
+        else:
+            if "sound_db" not in L:
+                raise ValueError("소리 값이 없습니다(마이크 권한·소리 센서 켜기)")
+            if (((d.get("info") or {}).get("diag") or {}).get("local") or {}).get("lock"):
+                raise ValueError("폰에서 수동 설정 우선 중 — 소리 보정은 폰 앱의 수동 설정에서 바꾸세요")
+            if not 20 <= ref <= 140:
+                raise ValueError("소리 범위 밖(dB)")
+            key, measured, old = "sound_offset_db", L["sound_db"], float(c["sound_offset_db"])
+            new = old + (ref - float(L["sound_db"]))
+        cur = dict(c)
+        cur[key] = round(new, 1)
+        d["config"] = merge_config(cur)
+        applied = d["config"][key]
+        rec = {"ts": now, "what": what, "key": key, "reference": ref, "measured": measured, "old": old, "new": applied, "by": by[:60],
+               **({"from": src} if src else {}), **({"clamped": True} if abs(applied - round(new, 1)) > 0.05 else {})}
+        d["info"]["calib"] = ([rec] + list(d["info"].get("calib") or []))[:10]
+        await self._save(d)
+        return rec
+
+    def calib_candidates(self, did: str) -> list[dict]:
+        """같은 사이트에서 주변 온도 센서로 재는 폰(최근 10분) — 배터리 온도로 재는 폰의 비교 기준 후보"""
+        d = self._get(did)
+        now = time.time()
+        return [{"id": o["id"], "name": o["name"], "temp_c": o["latest"].get("temp_c")} for o in self.devs.values()
+                if o["id"] != did and not o.get("retired") and (o.get("site") or "") == (d.get("site") or "")
+                and (o.get("latest") or {}).get("temp_src") == "ambient" and now - (o["latest"].get("ts") or 0) <= 600]
+
+    # ------------------------------------------------------------------ 2.54.0 기록·주간 요약
+    async def events(self, did: str, limit: int = 50) -> list[dict]:
+        self._get(did)
+        return [dict(r) for r in await self.store.q("SELECT ts, sev, metric, msg FROM sensor_events WHERE dev=? ORDER BY ts DESC LIMIT ?",
+                                                    (did, max(1, min(500, limit))))]
+
+    async def summary(self, since: float, until: float) -> dict:
+        """기간 환경 요약 — 장치별 온도·습도·소리 최저/평균/최고, 기준 초과 시간, 수신율, 경보 수"""
+        if not self._loaded:
+            await self.load()
+        span = max(1.0, until - since)
+        items = []
+        for d in self.devs.values():
+            if d.get("retired") or not d.get("enrolled"):
+                continue
+            agg = await self.store.q("SELECT m, MIN(v) lo, AVG(v) av, MAX(v) hi, COUNT(*) n FROM sensor_samples WHERE dev=? AND ts>=? AND ts<? "
+                                     "AND m IN ('temp_c','humidity','sound_db','battery_pct') GROUP BY m", (d["id"], since, until))
+            stats = {r["m"]: {"min": round(r["lo"], 1), "avg": round(r["av"], 1), "max": round(r["hi"], 1), "n": r["n"]} for r in agg}
+            iv = self.interval(d)
+            # 수신율 — 폰마다 1개 이상 오는 배터리 값 개수 ÷ 기대 개수(등록 뒤 기간만)
+            start = max(since, d.get("enrolled") or since)
+            expect = max(1.0, (until - start) / iv) if until > start else 1.0
+            got = (stats.get("battery_pct") or stats.get("temp_c") or {}).get("n", 0)
+            th = (d["config"].get("thresholds") or {}).get("temp_c") or {}
+            over = 0
+            if th.get("warn_hi") is not None:
+                r = await self.store.q1("SELECT COUNT(*) n FROM sensor_samples WHERE dev=? AND m='temp_c' AND ts>=? AND ts<? AND v>=?",
+                                        (d["id"], since, until, th["warn_hi"]))
+                over = int((r or {}).get("n") or 0) * iv // 60
+            ev = await self.store.q("SELECT sev, metric, COUNT(*) n FROM sensor_events WHERE dev=? AND ts>=? AND ts<? AND sev IN ('warning','critical') "
+                                    "GROUP BY sev, metric", (d["id"], since, until))
+            alerts = {"critical": 0, "warning": 0}
+            top: dict[str, int] = {}
+            for r in ev:
+                alerts[r["sev"]] = alerts.get(r["sev"], 0) + r["n"]
+                top[r["metric"] or "-"] = top.get(r["metric"] or "-", 0) + r["n"]
+            items.append({"id": d["id"], "name": d["name"], "site": d.get("site", ""), "temp_src": (d.get("latest") or {}).get("temp_src", ""),
+                          "stats": {k: v for k, v in stats.items() if k != "battery_pct"}, "coverage": round(min(100.0, got / expect * 100), 1),
+                          "temp_over_min": int(over), "temp_warn_hi": th.get("warn_hi"), "alerts": alerts,
+                          "top": sorted(top.items(), key=lambda kv: -kv[1])[:3], "status": self.public(d)["status"]})
+        items.sort(key=lambda x: (-x["alerts"]["critical"], -x["alerts"]["warning"], x["site"], x["name"]))
+        return {"since": since, "until": until, "days": round(span / 86400, 1), "items": items,
+                "totals": {"devices": len(items), "critical": sum(x["alerts"]["critical"] for x in items),
+                           "warning": sum(x["alerts"]["warning"] for x in items),
+                           "low_coverage": sum(1 for x in items if x["coverage"] < 90),
+                           "temp_over_min": sum(x["temp_over_min"] for x in items)}}
 
     # ------------------------------------------------------------------ 조회
     def public(self, d: dict) -> dict:

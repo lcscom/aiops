@@ -149,6 +149,14 @@ th{{background:#fafafa;font-weight:600;font-size:12px}}.r{{text-align:right;font
             out["lifecycle"] = life
         except Exception as e:  # noqa: BLE001
             out["lifecycle"] = {"error": f"{type(e).__name__}: {e}"[:160]}
+        sn = getattr(self.e, "sensors", None)                 # 2.54.0 현장 센서 환경 요약(등록된 폰이 있을 때만)
+        if sn is not None:
+            try:
+                sm = await asyncio.wait_for(sn.summary(since, until), 60)
+                if sm["items"]:
+                    out["sensors"] = sm
+            except Exception as e:  # noqa: BLE001
+                out["sensors"] = {"error": f"{type(e).__name__}: {e}"[:160]}
         return out
 
     @staticmethod
@@ -203,6 +211,16 @@ th{{background:#fafafa;font-weight:600;font-size:12px}}.r{{text-align:right;font
                          + (f"<table style='margin-top:8px'><tr><th>시각</th><th>대상</th><th>항목</th><th>변경</th></tr>{dr_}</table>" if dr_ else "<p>이 기간 기록된 구성 변경이 없습니다.</p>")
                          + (f"<table style='margin-top:8px'><tr><th>구성요소</th><th>범위</th><th>버전</th><th>지원 종료</th><th class=r>남은 일</th></tr>{vr}</table>" if vr else "")
                          + "</section>")
+        sn = x.get("sensors") or {}
+        if sn.get("items"):
+            t = sn["totals"]
+            st = lambda it, m: (lambda v: "-" if not v else f"{v['min']:g} / {v['avg']:g} / <b>{v['max']:g}</b>")((it.get("stats") or {}).get(m))  # noqa: E731
+            rows = "".join(f"<tr><td>{e(it['site'] or '-')}</td><td>{e(it['name'])}{' <small>(배터리 추정)</small>' if it['temp_src'] == 'battery' else ''}</td>"
+                           f"<td class=r>{st(it, 'temp_c')}</td><td class=r>{st(it, 'humidity')}</td><td class=r>{st(it, 'sound_db')}</td>"
+                           f"<td class=r>{it['temp_over_min'] if it['temp_warn_hi'] is not None else '-'}</td><td class=r>{it['coverage']:g}%</td>"
+                           f"<td class=r>{it['alerts']['critical']}</td><td class=r>{it['alerts']['warning']}</td></tr>" for it in sn["items"][:60])
+            parts.append(f"<section><h2>현장 센서 환경 <small>폰 {t['devices']}대 · 위험 {t['critical']} · 경고 {t['warning']} · 온도 경고 상한 이상 {t['temp_over_min']}분 · 수신율 90% 미만 {t['low_coverage']}대</small></h2>"
+                         f"<table><tr><th>사이트</th><th>장치</th><th class=r>온도 °C 최저/평균/최고</th><th class=r>습도 %</th><th class=r>소리 dB</th><th class=r>온도 상한 이상(분)</th><th class=r>수신율</th><th class=r>위험</th><th class=r>경고</th></tr>{rows}</table></section>")
         return "".join(parts)
 
     @staticmethod

@@ -17,10 +17,20 @@
   POST /api/sensors/{id}/reenroll           새 등록 코드(기존 폰 토큰 폐기)                      (settings)
   POST /api/sensors/{id}/snap-now           다음 전송 때 사진 1장                               (operate)
   POST /api/sensors/{id}/retire · DELETE /api/sensors/{id}                                      (settings)
+2.54.0
+  POST /api/sensors/maint                   {ids|site, minutes, reason} 작업 모드 = 유지보수 창(출처 sensor, 대상 장치)  (operate)
+  POST /api/sensors/maint/{mid}/end         작업 모드 일찍 끝내기                                 (operate)
+  GET  /api/sensors/{id}/baseline?metric=   시간대별 평소 값(중앙값·변동 폭) · POST …/baseline/rebuild (settings)
+  GET  /api/sensors/{id}/calibrate          보정 기록·비교 후보 · POST {what, reference | from_device}  (settings)
+  GET  /api/sensors/{id}/events             장치 경보 기록
+  POST /api/sensors/bulk                    {ids, action: config|command|snap, ...} 여러 대 한 번에   (settings)
+  GET  /api/sensors/summary?days=7          기간 환경 요약(최저·평균·최고, 기준 초과 시간, 수신율, 경보 수)
 """
 from __future__ import annotations
 
 import html
+import json
+import re
 import time
 from pathlib import Path
 from urllib.parse import quote
@@ -28,7 +38,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
-from .edgesense import COMMANDS, DEFAULT_CONFIG, METRICS, SENSORS, URL_RX
+from .edgesense import BASE_METRICS, CALIB, COMMANDS, DEFAULT_CONFIG, METRICS, SENSORS, URL_RX
 from . import sensorprov
 
 
@@ -84,11 +94,124 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
             raise HTTPException(400, str(e)) from None
 
     # ---------------------------------------------------------------- 화면
+    # 2.54.0 작업 모드 — 새 억제 장치를 만들지 않고 기존 유지보수 창(출처 sensor + 장치 개체)으로 만든다
+    INC = getattr(ENGINE, "incidents", None)
+
+    def _maint_of(items: list[dict]) -> None:
+        now = time.time()
+        wins = [m for m in (getattr(INC, "maint_cache", None) or []) if INC._in_window(m, now)]
+        for it in items:
+            ev = {"host": it["name"], "entity": f"sensor:{it['id']}", "source": "sensor"}
+            for m in wins:
+                try:
+                    if INC._scope_match(m.get("scope") or {}, ev, None):
+                        it["maint"] = {"id": m["id"], "name": m["name"], "end": None if m.get("weekly") else m.get("end"),
+                                       "sensor": str((m.get("scope") or {}).get("hosts_regex") or "").startswith("^sensor:")}
+                        break
+                except re.error:
+                    continue
+
     @r.get("/api/sensors")
     async def lst():
         if not S._loaded:
             await S.load()
-        return {"items": S.list(), "now": time.time(), "stale_seconds": S.stale}
+        items = S.list()
+        if INC:
+            _maint_of(items)
+        return {"items": items, "now": time.time(), "stale_seconds": S.stale}
+
+    @r.get("/api/sensors/summary")
+    async def summary(days: float = 7):
+        now = time.time()
+        return await S.summary(now - max(1, min(90, days)) * 86400, now)
+
+    @r.post("/api/sensors/maint")
+    async def maint_start(request: Request):
+        if not INC:
+            raise HTTPException(503, "유지보수 창을 쓸 수 없습니다")
+        b = await body_json(request)
+        if not S._loaded:
+            await S.load()
+        ids = [str(x) for x in (b.get("ids") or []) if str(x) in S.devs]
+        site = str(b.get("site") or "").strip()
+        if site and not ids:
+            ids = [d["id"] for d in S.devs.values() if (d.get("site") or "") == site and not d.get("retired")]
+        if not ids:
+            raise HTTPException(400, "작업 모드로 둘 장치(ids) 또는 사이트(site)를 지정하세요")
+        try:
+            minutes = int(float(b.get("minutes") or 60))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "시간(분)") from None
+        minutes = max(10, min(24 * 60, minutes))
+        reason = str(b.get("reason") or "").strip()[:60]
+        now = time.time()
+        label = site or (S.devs[ids[0]]["name"] + (f" 외 {len(ids) - 1}대" if len(ids) > 1 else ""))
+        name = f"현장 센서 작업 — {label}" + (f" ({reason})" if reason else "")
+        scope = {"hosts_regex": "^sensor:(" + "|".join(re.escape(i) for i in ids) + ")$", "clusters": [], "sources": ["sensor"]}
+        u = who(request).get("user", "")
+        mid = await ENGINE.store.x("INSERT INTO maintenance(name,start,end,weekly,scope,enabled,created_by,created) VALUES(?,?,?,?,?,?,?,?)",
+                                   (name[:100], now, now + minutes * 60, None, json.dumps(scope, ensure_ascii=False), 1, u, now))
+        await INC.reload_suppression()
+        await audit(request, "sensor.maint_start", ",".join(ids)[:200], detail={"id": mid, "minutes": minutes, "reason": reason, "site": site})
+        return {"ok": True, "id": mid, "ids": ids, "end": now + minutes * 60, "name": name}
+
+    @r.post("/api/sensors/maint/{mid}/end")
+    async def maint_end(mid: int, request: Request):
+        if not INC:
+            raise HTTPException(503, "유지보수 창을 쓸 수 없습니다")
+        row = await ENGINE.store.q1("SELECT id, scope FROM maintenance WHERE id=?", (mid,))
+        sc = json.loads((row or {}).get("scope") or "{}") if row else {}
+        if not row or not str(sc.get("hosts_regex") or "").startswith("^sensor:") or sc.get("sources") != ["sensor"]:
+            raise HTTPException(404, "현장 센서 작업 모드가 아닙니다(일반 유지보수 창은 설정 › 유지보수에서)")
+        await ENGINE.store.x("UPDATE maintenance SET enabled=0, end=? WHERE id=?", (time.time(), mid))
+        await INC.reload_suppression()
+        await audit(request, "sensor.maint_end", str(mid))
+        return {"ok": True}
+
+    @r.post("/api/sensors/bulk")
+    async def bulk(request: Request):
+        """여러 대 한 번에 — 설정 일부(config)·원격 명령(command)·사진(snap). 장치마다 결과"""
+        b = await body_json(request, 256 * 1024)
+        if not S._loaded:
+            await S.load()
+        ids = [str(x) for x in (b.get("ids") or [])][:200]
+        act = str(b.get("action") or "")
+        if act not in ("config", "command", "snap") or not ids:
+            raise HTTPException(400, "ids 와 action(config|command|snap)")
+        if act == "config" and not isinstance(b.get("config"), dict):
+            raise HTTPException(400, "config 객체가 필요합니다")
+        if act == "command" and str(b.get("op") or "") not in COMMANDS:
+            raise HTTPException(400, "모르는 명령")
+        u = who(request).get("user", "")
+        out = []
+        for did in ids:
+            d = S.devs.get(did)
+            if not d or d.get("retired"):
+                out.append({"id": did, "ok": False, "msg": "없는 장치 또는 퇴역"})
+                continue
+            try:
+                if act == "config":
+                    cfg = dict(b["config"])
+                    if isinstance(cfg.get("thresholds"), dict):                # 일괄은 바꾼 칸만(다른 경고·위험 칸은 장치 값 유지)
+                        cfg["thresholds"] = {m: {**(d["config"]["thresholds"].get(m) or {}), **t} for m, t in cfg["thresholds"].items() if isinstance(t, dict)}
+                    await S.update(did, {"config": cfg})
+                    out.append({"id": did, "ok": True, "msg": "다음 전송 때 적용"})
+                elif act == "command":
+                    if not d.get("enrolled"):
+                        raise ValueError("등록 전 장치")
+                    r_ = await S.add_command(did, str(b["op"]), b.get("args") or {}, u)
+                    out.append({"id": did, "ok": True, "msg": r_["warn"] or "대기(다음 전송 때)", "cmd": r_["id"]})
+                else:
+                    if "camera" not in d["config"]["sensors"]:
+                        raise ValueError("카메라 꺼짐")
+                    S.request_snap(did)
+                    out.append({"id": did, "ok": True, "msg": "다음 전송 때 촬영"})
+            except (ValueError, TypeError) as e:
+                out.append({"id": did, "ok": False, "msg": str(e)[:200]})
+        await audit(request, "sensor.bulk", act, detail={"ids": ids[:50], "n": len(ids), "op": b.get("op"),
+                                                         "config": list(b["config"]) if act == "config" else None,
+                                                         "ok": sum(1 for x in out if x["ok"])})
+        return {"items": out, "ok": sum(1 for x in out if x["ok"]), "failed": sum(1 for x in out if not x["ok"])}
 
     @r.get("/api/sensors/clusters")
     async def clusters():
@@ -136,6 +259,44 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
         name = f"sensor-{d['id']}-{time.strftime('%Y%m%d')}.csv"
         return Response("\ufeff" + buf.getvalue(), media_type="text/csv; charset=utf-8",
                         headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @r.get("/api/sensors/{did}/baseline")
+    async def baseline(did: str, metric: str = "temp_c"):
+        d = g(did)
+        if metric not in BASE_METRICS:
+            raise HTTPException(400, "기준선 측정값: " + ", ".join(BASE_METRICS))
+        b = (d.get("info") or {}).get("baseline") or {}
+        return {"metric": metric, "built": b.get("built"), "days": b.get("days", 0), "hours": (b.get("m") or {}).get(metric) or {},
+                "enabled": d["config"].get("baseline"), "k": d["config"].get("baseline_k")}
+
+    @r.post("/api/sensors/{did}/baseline/rebuild")
+    async def baseline_rebuild(did: str, request: Request):
+        d = g(did)
+        b = await S.build_baseline(d)
+        await audit(request, "sensor.baseline_rebuild", did)
+        return {"ok": True, "built": b["built"], "days": b["days"], "metrics": {m: len(v) for m, v in b["m"].items()}}
+
+    @r.get("/api/sensors/{did}/calibrate")
+    async def calib_info(did: str):
+        d = g(did)
+        return {"history": (d.get("info") or {}).get("calib") or [], "candidates": S.calib_candidates(did), "what": CALIB,
+                "latest": {k: (d.get("latest") or {}).get(k) for k in ("temp_c", "temp_src", "battery_c", "humidity", "sound_db", "ts")}}
+
+    @r.post("/api/sensors/{did}/calibrate")
+    async def calib(did: str, request: Request):
+        g(did)
+        b = await body_json(request)
+        try:
+            rec = await S.calibrate(did, str(b.get("what") or ""), b.get("reference"), who(request).get("user", ""), str(b.get("from_device") or ""))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        await audit(request, "sensor.calibrate", did, detail={k: rec[k] for k in ("what", "key", "reference", "measured", "old", "new")})
+        return rec
+
+    @r.get("/api/sensors/{did}/events")
+    async def dev_events(did: str, limit: int = 50):
+        g(did)
+        return {"items": await S.events(did, limit)}
 
     @r.get("/api/sensors/{did}/snaps")
     async def snaps(did: str, limit: int = 60):
