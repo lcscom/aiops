@@ -1643,3 +1643,33 @@ API: `POST /api/checkbot/refresh` · `GET /api/checkbot/inventory` · `POST /api
   다른 서비스가 같은 도메인에서 메일을 보내면(예: 뉴스레터) SPF·DMARC 를 그 서비스에 맞게 바꿔야 합니다.
 - **관리 포털 앞단**: Cloudflare Zero Trust › Access › Applications 에 포털 이름을 등록하고 `server.cf_access` 로 원본에서도 Access JWT 를 확인하면, Access 를 거치지 않은 요청은 로그인 화면에도 닿지 않습니다(§보안 점검의 `인터넷 쪽 Access 관문`).
 
+## 65. 외부 공개 로그인 보호 (2.49.0)
+
+포털을 Cloudflare Tunnel 등으로 인터넷에 내놓았을 때를 위한 보호입니다. 내부망 접속에는 이전과 같은 규칙이 적용됩니다.
+
+- **외부 판정**: `server.external_hosts` 의 이름으로 들어오거나 Cloudflare 머리글(`CF-Ray`)이 붙은 요청을 외부로 봅니다.
+- **잠금 악용 차단**: 외부에서 틀린 비밀번호는 계정+출발 IP 단위로 잠급니다. 공격자가 관리자 아이디로 일부러 틀려도 관리자는 다른 곳에서 로그인할 수 있습니다. 여러 IP에서 합계 20회가 넘으면 그때 계정 전체를 잠그고 알립니다.
+- **계정 대입 차단**: 한 IP가 10분 안에 아이디 5개 이상으로 실패하면 30분 차단합니다.
+- **세션 국가 고정**: 로그인한 국가와 다른 국가에서 같은 세션이 쓰이면 세션을 끊고 알립니다(Cloudflare 가 넣는 `CF-IPCountry` 가 있을 때만). 해외 출장 중 국가가 바뀌면 다시 로그인하면 됩니다.
+- **새 위치 로그인**: 처음 보는 국가(또는 IP 대역)에서 로그인하면 이상징후로 알립니다. 본인이 아니면 바로 비밀번호를 바꾸고 사용자 관리에서 세션을 종료하세요.
+- **확인·해제**: 시스템·관리 › 사용자·토큰 › 외부 로그인 보호. 사용자 행의 '잠금 해제'는 외부 잠금까지 함께 풉니다. 차단·잠금 상태는 메모리에만 있어 서비스를 다시 시작하면 풀립니다(기록은 감사로그·이상징후에 남음).
+- **설정**(`config.yaml`):
+
+```yaml
+auth:
+  guard:
+    external_lockout: account_ip     # account 로 바꾸면 이전처럼 계정 단위 잠금
+    external_account_cap: 20
+    external_window_minutes: 30
+    stuffing_users: 5                # 0 = 계정 대입 차단 끔
+    stuffing_window_minutes: 10
+    ip_block_minutes: 30
+    session_country_bind: true
+    new_location_alert: true
+server:
+  security_contact: "mailto:security@example.com"   # /.well-known/security.txt (비우면 404)
+```
+
+- **프록시 설정 확인**: cloudflared 가 같은 서버에 있으면 `server.trusted_proxies: 127.0.0.1`(기본)로 실제 방문자 IP가 보입니다. 다른 서버에 있으면 그 서버 IP를 넣으세요. 설정이 빠져 출발지가 127.0.0.1 로 보여도 `CF-Connecting-IP` 로 판단하고, 루프백은 IP 차단하지 않습니다.
+- **공개 표면 점검**: 보안 점검의 `로그인 전 공개 경로` 항목이 모든 GET 경로를 로그인 없이 불러 봅니다. 허용 목록 밖에서 응답하는 경로가 생기면 실패로 표시합니다.
+

@@ -335,6 +335,20 @@ def external_host(request) -> bool:
     return host_name(request.headers.get("host") or "") in _EXT_HOSTS
 
 
+# 2.49.0 Cloudflare 를 거쳐 들어온 요청(CF-Ray·CF-Connecting-IP)도 외부로 본다 — server.external_hosts 를 비워 둔
+# 설치에서도 연동 경로 차단·간략 헬스·외부 로그인 보호가 적용되게. 내부에서 이 머리글을 꾸며 보내면 더 엄격해질 뿐(우회 아님)
+_EDGE_HDR = bool(CFG["server"].get("edge_headers_external", True))
+
+
+def via_edge(request) -> bool:
+    if _EXT_HOSTS and external_host(request):
+        return True
+    return _EDGE_HDR and bool(request.headers.get("cf-ray") or request.headers.get("cf-connecting-ip"))
+
+
+AUTH.is_external = via_edge
+
+
 from .security.cfaccess import CfAccess  # noqa: E402
 from .mobile import Mobile, PUBLIC_PATHS as MOBILE_PUBLIC  # noqa: E402
 MOBILE = Mobile(ENGINE, AUTH, CFG.get("mobile") or {})   # 2.30.0 안드로이드 앱 배포·기기 연결·알림 피드
@@ -353,7 +367,7 @@ def is_probe(request) -> bool:
 async def external_guard(request: Request, call_next):
     if bad_path(request.scope.get("path") or ""):          # 2.30.0 '..'·'//'·역슬래시·(/api 밖) 디코딩된 '?'·'#' 경로는 400 — 미들웨어 판단과 라우팅 불일치 차단
         return JSONResponse({"detail": "잘못된 요청 경로", "code": "bad_path"}, status_code=400, headers=_EXT_H)
-    if _EXT_HOSTS and external_host(request):
+    if via_edge(request):
         probe = is_probe(request)
         if not probe:
             EXT_STATS["requests"] += 1
@@ -432,20 +446,45 @@ async def robots():
     return Response("User-agent: *\nDisallow: /\n", media_type="text/plain", headers={"Cache-Control": "public, max-age=86400"})
 
 
+def _guard_notify(sev: str, msg: str, entity: str, attrs: dict) -> None:
+    """2.49.0 외부 로그인 보호 판단 → 엔진 이벤트(이상징후·알림·SIEM 과 같은 경로)"""
+    try:
+        ENGINE.submit(LogEvent(source="aiops", connector="auth-guard", message=msg, severity=sev, host="aiops",
+                               entity=entity, kind="event", attrs={**attrs, "category": "security"}))
+    except Exception:  # noqa: BLE001
+        pass
+
+
+AUTH.guard.notify = _guard_notify
+
+
+@app.get("/.well-known/security.txt", include_in_schema=False)
+async def security_txt():
+    """2.49.0 RFC 9116 — server.security_contact(mailto:·https:) 를 넣었을 때만 공개. 만료는 응답 시점 + 1년"""
+    c = str(CFG["server"].get("security_contact") or "").strip()
+    if not c or not re.match(r"^(mailto:[^\s@]+@[^\s@]+|https://[^\s]+)$", c):
+        raise HTTPException(404)
+    exp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + 365 * 86400))
+    body = f"Contact: {c}\nExpires: {exp}\nPreferred-Languages: ko, en\n"
+    return Response(body, media_type="text/plain; charset=utf-8", headers={"Cache-Control": "max-age=86400"})
+
+
 @app.get("/healthz", include_in_schema=False)
 async def healthz(request: Request):
     """생존(liveness) — 프로세스·이벤트 루프가 응답하는지만 (인증·DB 조회 없음) · 외부 이름으로는 ok 만(2.22.0)"""
-    if _EXT_HOSTS and external_host(request):
+    if via_edge(request):
         return {"ok": True}
     return {"ok": True, "uptime": round(time.time() - ENGINE.stats["started"], 1),
             "llm": (ENGINE.llm.status.get("state") if ENGINE.llm else "disabled")}
 
 
 @app.get("/readyz", include_in_schema=False)
-async def readyz():
+async def readyz(request: Request):
     """준비(readiness) — 로드밸런서(Avi/F5) 헬스 모니터·서비스 감시용. 내부 핵심 작업 정지·DB 쓰기 장기 실패·
-    이벤트 루프 심각 지연이면 503. 인증 없이 열려 있으므로 세부 내용은 노출하지 않는다."""
+    이벤트 루프 심각 지연이면 503. 인증 없이 열려 있으므로 세부 내용은 노출하지 않는다(외부에서는 ready 만 — 2.49.0)."""
     ok, why = ENGINE.health.ready()
+    if via_edge(request):
+        return JSONResponse({"ready": ok}, status_code=200 if ok else 503)
     body = {"ready": ok, "node": ENGINE.ha.node, "leader": ENGINE.ha.leader}
     if not ok:
         body["reasons"] = [w.split(":")[0] for w in why]
@@ -1766,7 +1805,7 @@ async def mobile_info(request: Request):
     return {"app": MB.app_meta(), "server": patching.current_version(), "settings": MOBILE.settings(), "kinds": MB.KINDS, "admin": adm,
             "devices": await MOBILE.devices(u, adm), "me": u["user"], "stats": MOBILE.stats if adm else None,
             "access": {"enabled": CFA.enabled, "enforce": bool(CFA.enabled and CFA.enforce)},
-            "external": bool(_EXT_HOSTS and external_host(request))}
+            "external": via_edge(request)}
 
 
 @app.post("/api/mobile/pair/start")

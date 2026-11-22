@@ -449,7 +449,8 @@
 
   // ================================================================ 사용자 · 토큰
   async function loadUsers() {
-    const [users, sessions, tokens] = await Promise.all([A.api("GET", "/api/users"), A.api("GET", "/api/users/sessions"), A.api("GET", "/api/tokens")]);
+    const [users, sessions, tokens, guard] = await Promise.all([A.api("GET", "/api/users"), A.api("GET", "/api/users/sessions"), A.api("GET", "/api/tokens"),
+      A.api("GET", "/api/users/guard").catch(() => null)]);
     const now = Date.now() / 1000;
     $("#users-body").innerHTML = `<h5>사용자 <small>로컬 계정 + AD/LDAP(로그인 시 그룹 → 역할 동기화)</small></h5>
       <table><thead><tr><th>아이디</th><th>이름</th><th>역할</th><th>유형</th><th>상태</th><th>MFA</th><th>마지막 로그인</th><th>비밀번호 변경</th><th></th></tr></thead><tbody>${users.map(u => {
@@ -464,7 +465,8 @@
             ${u.source === "local" ? `<button class="btn-sm" data-ua="reset">비밀번호 초기화</button>` : ""}
             ${u.username !== A.me.user ? `<button class="btn-sm" data-ua="${u.disabled ? "enable" : "disable"}">${u.disabled ? "활성화" : "비활성화"}</button><button class="btn-sm" data-ua="delete">삭제</button>` : ""}</td></tr>`; }).join("")}</tbody></table>
       <h5 style="margin-top:18px">접속 세션 <small>${sessions.length}개</small></h5>
-      <table><thead><tr><th>사용자</th><th>역할</th><th>IP</th><th>로그인</th><th>방식</th><th>유휴</th><th>세션</th><th></th></tr></thead><tbody>${sessions.map(s => `<tr><td>${esc(s.user)}</td><td>${esc(ROLE_LABEL[s.role] || s.role)}</td><td class="mono">${esc(s.ip)}</td><td>${fmtDT(s.since)}</td><td>${esc(s.method || "password")}</td><td>${Math.floor(s.idle_sec / 60)}분 ${s.idle_sec % 60}초</td><td class="mono" title="${esc(s.ua || "")}">${esc(s.sid)}…</td><td><button class="btn-sm" data-sess="${esc(s.sid)}">종료</button></td></tr>`).join("")}</tbody></table>
+      <table><thead><tr><th>사용자</th><th>역할</th><th>IP</th><th>로그인</th><th>방식</th><th>유휴</th><th>세션</th><th></th></tr></thead><tbody>${sessions.map(s => `<tr><td>${esc(s.user)}</td><td>${esc(ROLE_LABEL[s.role] || s.role)}</td><td class="mono">${esc(s.ip)}${s.country ? ` <span class="label">${esc(s.country)}</span>` : ""}${(s.ips || []).length ? `<span class="sub" title="로그인 뒤 다른 IP에서 쓰임">+ ${(s.ips || []).map(esc).join(", ")}</span>` : ""}</td><td>${fmtDT(s.since)}</td><td>${esc(s.method || "password")}</td><td>${Math.floor(s.idle_sec / 60)}분 ${s.idle_sec % 60}초</td><td class="mono" title="${esc(s.ua || "")}">${esc(s.sid)}…</td><td><button class="btn-sm" data-sess="${esc(s.sid)}">종료</button></td></tr>`).join("")}</tbody></table>
+      ${guardHtml(guard)}
       <h5 style="margin-top:18px">API 토큰 <small>연동용(ingest: 로그 수신 · metrics: Prometheus · read: 조회 API) — SHA-256 해시만 저장</small></h5>
       <table><thead><tr><th>이름</th><th>접두어</th><th>범위</th><th>허용 IP</th><th>발급</th><th>만료</th><th>마지막 사용</th><th>상태</th><th></th></tr></thead><tbody>${tokens.map(t => {
         const exp = t.expires && t.expires < now;
@@ -472,6 +474,27 @@
           <td>${fmtDT(t.created)}</td><td>${t.expires ? fmtDT(t.expires) : "무기한"}</td><td>${t.last_used ? ago(t.last_used) : "-"}</td>
           <td>${t.revoked ? '<span class="label critical">폐기</span>' : exp ? '<span class="label warning">만료</span>' : '<span class="label ok">유효</span>'}</td>
           <td>${t.revoked ? "" : `<button class="btn-sm" data-revoke="${t.id}">폐기</button>`}</td></tr>`; }).join("") || `<tr><td colspan="9"><div class="empty small">발급된 토큰 없음</div></td></tr>`}</tbody></table>`;
+  }
+  // 2.49.0 외부(인터넷) 로그인 보호 — 차단 IP·계정+IP 잠금·최근 보호 동작·새 위치 로그인
+  const GUARD_KIND = {ip_block: "IP 차단(계정 대입)", pair_lock: "계정+IP 잠금", account_lock: "계정 전체 잠금(분산 대입)", session_moved: "세션 끊음(국가 변경)", new_location: "새 위치 로그인"};
+  function guardHtml(g) {
+    if (!g) return "";
+    const now = Date.now() / 1000, c = g.config || {};
+    const left = t => `${Math.max(1, Math.ceil((t - now) / 60))}분`;
+    const loc = l => esc(String(l || "").replace(/^CC:/, "국가 ").replace(/^IP:/, ""));
+    const en = (window.AIOPS_I18N || {}).lang === "en";        // 숫자가 낀 설명문은 사전 치환 대신 언어별로 직접
+    const sub = en
+      ? `${c.external_lockout === "account_ip" ? "Internet-side failures lock account+IP only (blocks attackers deliberately locking out admins)" : "Internet-side failures lock the whole account"} · an IP failing with ${c.stuffing_users}+ user IDs within ${c.stuffing_window_minutes} min is blocked for ${c.ip_block_minutes} min · account-wide lock after ${c.external_account_cap} failures across IPs`
+      : `인터넷 쪽 실패는 ${c.external_lockout === "account_ip" ? "계정+IP 단위로 잠금(관리자 계정을 일부러 잠그는 공격 차단)" : "계정 단위로 잠금"} · 한 IP가 ${c.stuffing_window_minutes}분 안에 아이디 ${c.stuffing_users}개 이상 실패하면 ${c.ip_block_minutes}분 차단 · 여러 IP 합계 ${c.external_account_cap}회면 계정 전체 잠금`;
+    return `<h5 style="margin-top:18px">외부 로그인 보호 <small class="no-i18n">${esc(sub)}</small></h5>
+      <div class="grid2">
+        <div><b class="sub">차단 IP ${g.blocked_ips.length}개</b><table><thead><tr><th>IP</th><th>아이디 수</th><th>차단 뒤 시도</th><th>남은 시간</th><th></th></tr></thead><tbody>${g.blocked_ips.map(b => `<tr><td class="mono">${esc(b.ip)}</td><td>${b.users}</td><td>${b.hits || 0}</td><td>${left(b.until)}</td><td><button class="btn-sm" data-gub-ip="${esc(b.ip)}">해제</button></td></tr>`).join("") || `<tr><td colspan="5"><div class="empty small">없음</div></td></tr>`}</tbody></table></div>
+        <div><b class="sub">계정+IP 잠금 ${g.locked_pairs.length}건</b><table><thead><tr><th>아이디</th><th>IP</th><th>실패</th><th>남은 시간</th><th></th></tr></thead><tbody>${g.locked_pairs.map(p => `<tr><td>${esc(p.user)}</td><td class="mono">${esc(p.ip)}</td><td>${p.failed}</td><td>${left(p.until)}</td><td><button class="btn-sm" data-gub-ip="${esc(p.ip)}" data-gub-user="${esc(p.user)}">해제</button></td></tr>`).join("") || `<tr><td colspan="5"><div class="empty small">없음</div></td></tr>`}</tbody></table></div>
+      </div>
+      <details${g.events.length ? " open" : ""}><summary>최근 보호 동작 ${g.events.length}건 <small>(재시작하면 비워짐 — 기록은 감사로그·이상징후에 남음)</small></summary>
+        <table><thead><tr><th>시각</th><th>동작</th><th>아이디</th><th>IP</th><th>내용</th></tr></thead><tbody>${g.events.slice(0, 30).map(e => `<tr><td>${fmtDT(e.ts)}</td><td>${esc(GUARD_KIND[e.kind] || e.kind)}</td><td>${esc(e.user || "-")}</td><td class="mono">${esc(e.ip || "-")}</td><td>${e.kind === "session_moved" ? `${esc(e.from_country)} → ${esc(e.to_country)}` : e.kind === "new_location" ? loc(e.loc) : e.kind === "ip_block" ? `아이디 ${e.users}개` : ""}</td></tr>`).join("") || `<tr><td colspan="5"><div class="empty small">없음</div></td></tr>`}</tbody></table></details>
+      <details><summary>로그인 위치 기록 ${(g.locations || []).length}건 <small>국가(Cloudflare) 또는 IP 대역 — 처음 보는 위치면 알림</small></summary>
+        <table><thead><tr><th>아이디</th><th>위치</th><th>처음</th><th>마지막</th><th>횟수</th></tr></thead><tbody>${(g.locations || []).map(l => `<tr><td>${esc(l.username)}</td><td>${loc(l.loc)}</td><td>${fmtDT(l.first)}</td><td>${fmtDT(l.last)}</td><td>${l.count}</td></tr>`).join("")}</tbody></table></details>`;
   }
   $("#nav-users").onclick = () => { open("drawer-users"); loadUsers(); };
   $("#users-body").addEventListener("change", async e => {
@@ -484,6 +507,8 @@
   $("#users-body").addEventListener("click", async e => {
     const sv = e.target.closest("[data-sess]");
     if (sv) { if (await A.confirm("세션 종료", `세션 ${sv.dataset.sess}… 을 강제로 종료합니다(해당 사용자는 다시 로그인해야 함).`, true)) { await A.api("DELETE", `/api/users/sessions/${sv.dataset.sess}`).catch(err => A.fail("종료 실패", err)); loadUsers(); } return; }
+    const gb = e.target.closest("[data-gub-ip]");
+    if (gb) { try { await A.api("POST", "/api/users/guard/unblock", {ip: gb.dataset.gubIp, user: gb.dataset.gubUser || ""}); A.ok("해제"); } catch (err) { A.fail("해제 실패", err); } loadUsers(); return; }
     const rv = e.target.closest("[data-revoke]");
     if (rv) { if (await A.confirm("토큰 폐기", "폐기한 토큰은 즉시 사용할 수 없으며 되돌릴 수 없습니다.", true)) { await A.api("DELETE", `/api/tokens/${rv.dataset.revoke}`).catch(err => A.fail("폐기 실패", err)); loadUsers(); } return; }
     const b = e.target.closest("[data-ua]"); if (!b) return;

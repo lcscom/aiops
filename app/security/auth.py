@@ -99,8 +99,10 @@ ROUTE_RULES: list[tuple[str, str, str]] = [
     ("POST", r"^/api/checkbot/library/run$", "view"), ("POST", r"^/api/checkbot/library/snapshot$", "operate"),
     ("GET", r"^/api/assessment", "view"), ("POST", r"^/api/assessment/run$", "operate"), ("*", r"^/api/assessment", "settings"),
 ]
+from .guard import LoginGuard, REQ_EDGE, SCHEMA as GUARD_SCHEMA  # noqa: E402
+
 ANON = {"user": "anonymous", "role": "admin", "display": "anonymous"}
-PUBLIC = re.compile(r"^/(login|healthz|readyz|robots\.txt|api/ha/peer|agents/[A-Za-z0-9_.-]+|api/redfish/events/[A-Za-z0-9_-]+|favicon\.ico|static/(login\.(js|css|html)|style\.css|i18n(-login)?\.js|fonts/.*)|api/auth/(login|config|mfa/verify|oidc/start|oidc/callback)|share/sr/[A-Za-z0-9_-]{30,64}(/(report\.pdf|logs\.zip))?)$")
+PUBLIC = re.compile(r"^/(login|healthz|readyz|robots\.txt|\.well-known/security\.txt|api/ha/peer|agents/[A-Za-z0-9_.-]+|api/redfish/events/[A-Za-z0-9_-]+|favicon\.ico|static/(login\.(js|css|html)|style\.css|i18n(-login)?\.js|fonts/.*)|api/auth/(login|config|mfa/verify|oidc/start|oidc/callback)|share/sr/[A-Za-z0-9_-]{30,64}(/(report\.pdf|logs\.zip))?)$")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users(
@@ -135,6 +137,19 @@ def ip_allowed(ip: str, allow: str) -> bool:
 
 def client_ip(request: Request) -> str:
     return request.client.host if request.client else "-"
+
+
+def edge_ip(request: Request) -> str:
+    """2.49.0 외부 보호 판단용 출발 IP — 프록시 신뢰 설정(trusted_proxies)이 빠져 출발지가 루프백으로 보이면
+    Cloudflare 가 넣은 CF-Connecting-IP 를 쓴다(모든 외부 사용자가 한 IP로 묶여 함께 차단되는 일 방지)"""
+    ip = client_ip(request)
+    try:
+        if ipaddress.ip_address(ip).is_loopback:
+            cf = (request.headers.get("cf-connecting-ip") or "").strip()
+            return str(ipaddress.ip_address(cf)) if cf else ip
+    except ValueError:
+        pass
+    return ip
 
 
 def bad_path(path: str) -> bool:
@@ -186,6 +201,10 @@ class AuthManager:
         self._wrate: dict[str, list[float]] = {}
         self._ghost: dict[str, tuple[int, float]] = {}   # 2.30.0 없는 계정의 실패 횟수·잠금(메모리) — 실제 계정과 같은 응답을 주기 위함
         self._rl_n = 0                                    # 로그인 속도 제한 감사 표본(20건에 1건)
+        # 2.49.0 외부 공개 로그인 보호(계정+IP 잠금·계정 대입 IP 차단·세션 이동·새 위치) — notify 는 main 이 엔진에 연결
+        store.schema(GUARD_SCHEMA)
+        self.guard = LoginGuard(cfg.get("guard") or {})
+        self._blk_n = 0
         self._load_sessions()                           # 재시작·패치 뒤에도 로그인 유지(2.2)
 
     # ------------------------------------------------------------------ 세션 영속화(재시작·패치 뒤 유지)
@@ -309,11 +328,22 @@ class AuthManager:
             if self._rl_n % 20 == 1:              # 폭주 시 감사로그 과다 방지(20건에 1건)
                 await self.audit.log("auth.login", user=uname or "-", ip=ip, result="rate_limited", detail={"count": self._rl_n})
             raise HTTPException(429, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.")
+        edge = REQ_EDGE.get()
+        ext = bool(edge.get("external")) and self.guard.pair_mode      # 2.49.0 인터넷 쪽 실패는 계정+IP 단위
+        gip = (edge.get("ip") or ip) if edge.get("external") else ip    # 보호 판단용 출발지(루프백이면 CF-Connecting-IP)
+        if self.guard.ip_blocked(gip):
+            self._blk_n += 1
+            if self._blk_n % 20 == 1:
+                await self.audit.log("auth.login", user=uname or "-", ip=ip, result="ip_blocked", detail={"count": self._blk_n})
+            await asyncio.sleep(0.6)
+            raise HTTPException(429, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.")
         u = await self.store.q1("SELECT * FROM users WHERE username = ?", (uname,))
         now = time.time()
         # 없는 계정도 실제 계정과 같은 잠금 응답(계정 유무 추측 방지) — 실패 횟수·잠금 시각을 메모리에 둔다
         g_failed, g_until = (0, 0.0) if u else self._ghost.get(uname, (0, 0.0))
         locked_until = (u["locked_until"] or 0) if u else g_until
+        if ext:                                   # 외부: 이 IP의 잠금 + (분산 대입으로 걸린) 계정 전체 잠금
+            locked_until = max(self.guard.pair_until(uname, gip), (u["locked_until"] or 0) if u else 0)
         if locked_until > now:
             await self.audit.log("auth.login", user=uname or "-", ip=ip, result="locked" if u else "fail")
             mins = int((locked_until - now) // 60) + 1
@@ -334,6 +364,25 @@ class AuthManager:
                           else "아이디 또는 비밀번호가 올바르지 않습니다.")
         else:
             await asyncio.to_thread(verify_password, password or "", _dummy_hash())   # 없는 계정도 같은 계산 비용
+        if not ok and ext:
+            lock = int(self.cfg.get("lockout_threshold", 5))
+            g = self.guard.external_fail(uname, gip, lock, float(self.cfg.get("lockout_minutes", 30)))
+            if g["account_lock"] and u:
+                await self.store.x("UPDATE users SET locked_until=? WHERE username=?",
+                                   (now + float(self.cfg.get("lockout_minutes", 30)) * 60, uname))
+                await self.audit.log("auth.lockout", user=uname, ip=ip, result="locked", detail={"scope": "account", "rule": "external_account_cap"})
+            if g["ip_block"]:
+                await self.audit.log("auth.ip_block", user=uname or "-", ip=ip, result="blocked", detail={"rule": "stuffing"})
+            if g["until"]:
+                if u:
+                    await self.audit.log("auth.lockout", user=uname, ip=ip, result="locked", detail={"failed": g["failed"], "scope": "account_ip"})
+                reason = f"비밀번호 {g['failed']}회 오류로 계정이 잠겼습니다."
+            elif self.cfg.get("show_remaining_attempts", False):
+                reason += f" (남은 시도 {lock - g['failed']}회)"
+            await self.audit.log("auth.login", user=uname or "-", ip=ip, result="disabled" if u and u["disabled"] else "fail",
+                                 detail={"external": True})
+            await asyncio.sleep(0.6)
+            raise HTTPException(401, reason)
         if not ok:
             prev = (u["failed"] or 0) if u else g_failed
             if locked_until and locked_until <= now:
@@ -359,6 +408,7 @@ class AuthManager:
             await asyncio.sleep(0.6)              # 무차별 대입 지연
             raise HTTPException(401, reason)
         self._ghost.pop(uname, None)
+        self.guard.success(uname, gip)
         if u and u["disabled"]:                   # 비활성 안내는 비밀번호가 맞을 때만(계정 상태 노출 방지)
             await self.audit.log("auth.login", user=uname, ip=ip, result="disabled")
             raise HTTPException(403, "비활성화된 계정입니다. 관리자에게 문의하세요.")
@@ -400,7 +450,9 @@ class AuthManager:
         sid = secrets.token_urlsafe(32)
         kiosk = uname in self.kiosk_users
         enrolled = (await self.mfa.status(uname))["enrolled"] if self.mfa.enabled else False
-        self.sessions[sid] = {"user": uname, "role": "viewer" if kiosk else u["role"], "kiosk": kiosk,
+        edge = REQ_EDGE.get()
+        country = str(edge.get("country") or "")[:2].upper()
+        self.sessions[sid] = {"user": uname, "role": "viewer" if kiosk else u["role"], "kiosk": kiosk, "country": country,
                               "display": u["display"] or uname, "created": now,
                               "last": now, "ip": ip, "ua": ua[:200], "must_change": must_change, "source": u["source"],
                               "mfa": method.startswith("mfa-"), "auth_method": method,
@@ -408,8 +460,16 @@ class AuthManager:
         self._persist(sid)
         await self.store.x("UPDATE users SET failed=0, locked_until=0, prev_login=last_login, prev_ip=last_ip, "
                            "last_login=?, last_ip=? WHERE username=?", (now, ip, uname))
+        try:                                      # 2.49.0 처음 보는 위치(국가·IP 대역) 로그인 알림
+            where = await self.guard.note_login(self.store, uname, self.sessions[sid]["role"], ip, country)
+        except Exception:  # noqa: BLE001
+            where = {"loc": "", "new": False}
+        if where.get("new"):
+            await self.audit.log("auth.new_location", user=uname, role=self.sessions[sid]["role"], ip=ip, result="ok",
+                                 detail={"loc": where["loc"]})
         await self.audit.log("auth.login", user=uname, role=self.sessions[sid]["role"], ip=ip, result="ok",
-                             detail={"source": u["source"], "must_change": must_change, "kiosk": kiosk, "method": method})
+                             detail={"source": u["source"], "must_change": must_change, "kiosk": kiosk, "method": method,
+                                     "loc": where.get("loc", ""), **({"country": country} if country else {})})
         return {"sid": sid, "user": uname, "display": u["display"], "role": self.sessions[sid]["role"], "kiosk": kiosk,
                 "must_change": must_change, "must_enroll_mfa": self.sessions[sid]["must_enroll_mfa"],
                 "prev_login": u["last_login"], "prev_ip": u["last_ip"]}
@@ -525,6 +585,13 @@ class AuthManager:
             self.drop_session(sid)
             asyncio.ensure_future(self.audit.log("auth.session_expired", user=s["user"], role=s["role"], ip=s["ip"]))
             return None
+        edge = REQ_EDGE.get()
+        moved = self.guard.session_moved(s, client_ip(request), str(edge.get("country") or "")) if edge else ""
+        if moved:
+            self.drop_session(sid)
+            asyncio.ensure_future(self.audit.log("auth.session_moved", user=s["user"], role=s["role"], ip=client_ip(request),
+                                                 result="revoked", detail={"country": moved, "login_ip": s.get("ip")}))
+            return None
         s["sid"] = sid
         return s
 
@@ -572,6 +639,8 @@ class AuthManager:
 
         async def mw(request: Request, call_next):
             path = request.scope.get("path") or ""           # 2.30.0 라우팅과 같은 경로로 판단(request.url.path 는 디코딩된 '?' 뒤를 자름)
+            REQ_EDGE.set({"external": mgr.is_external(request), "country": (request.headers.get("cf-ipcountry") or "")[:2],
+                          "ip": edge_ip(request)})
             if bad_path(path):
                 return JSONResponse({"detail": "잘못된 요청 경로", "code": "bad_path"}, status_code=400)
             if not mgr.enabled or PUBLIC.match(path):
@@ -631,6 +700,11 @@ class AuthManager:
                     mgr.touch(s)
             return await call_next(request)
         return mw
+
+    @staticmethod
+    def is_external(request) -> bool:
+        """인터넷 쪽 요청인지 — main 이 외부 이름(server.external_hosts)·Cloudflare 머리글 판단으로 바꿔 끼움"""
+        return False
 
     def ws_user(self, ws) -> dict | None:
         """WebSocket 핸드셰이크 — 세션 쿠키 + 동일 출처(Origin) 확인"""
@@ -853,6 +927,7 @@ class AuthManager:
                 changes["disabled"] = int(bool(b["disabled"]))
             if b.get("unlock"):
                 changes.update(failed=0, locked_until=0)
+                mgr.guard.unblock(user=uname)            # 2.49.0 외부 계정+IP 잠금도 함께 해제
             if "display" in b:
                 changes["display"] = str(b["display"])[:60]
             pw = None
@@ -884,8 +959,29 @@ class AuthManager:
         async def sessions():
             now = time.time()
             return [{"user": v["user"], "role": v["role"], "ip": v["ip"], "since": v["created"], "ua": v.get("ua", "")[:80],
-                     "idle_sec": round(now - v["last"]), "sid": k[:8], "mfa": bool(v.get("mfa")), "method": v.get("auth_method", "password")}
+                     "idle_sec": round(now - v["last"]), "sid": k[:8], "mfa": bool(v.get("mfa")), "method": v.get("auth_method", "password"),
+                     "country": v.get("country", ""), "ips": v.get("ips", [])[:5]}
                     for k, v in mgr.sessions.items()]
+
+        @r.get("/api/users/guard")
+        async def guard_status():
+            """관리자: 외부 로그인 보호 현황(차단 IP·계정+IP 잠금·최근 동작·새 위치 기록)"""
+            snap = mgr.guard.snapshot()
+            snap["locations"] = await mgr.store.q("SELECT username, loc, first, last, count FROM login_locations ORDER BY last DESC LIMIT 200")
+            return snap
+
+        @r.post("/api/users/guard/unblock")
+        async def guard_unblock(request: Request):
+            """관리자: IP 차단 또는 계정+IP 잠금 해제 — {ip} / {user, ip} / {user}"""
+            s = getattr(request.state, "user", None) or ANON
+            b = await _json(request)
+            ip_, user_ = str(b.get("ip") or "")[:64], str(b.get("user") or "").lower()[:64]
+            if not ip_ and not user_:
+                raise HTTPException(400, "ip 또는 user 필요")
+            n = mgr.guard.unblock(ip_, user_)
+            await mgr.audit.log("auth.guard_unblock", user=s["user"], role=s["role"], ip=client_ip(request),
+                                target=f"{user_ or '*'}@{ip_ or '*'}", detail={"released": n})
+            return {"ok": True, "released": n}
 
         @r.delete("/api/users/sessions/{prefix}")
         async def session_revoke(prefix: str, request: Request):

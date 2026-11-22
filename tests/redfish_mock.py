@@ -6,6 +6,7 @@ build_tree(kind) → {경로: JSON}. MockBmc 는 httpx 전송(MockTransport)과 
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -174,10 +175,11 @@ def build_tree(kind: str = "dell") -> dict[str, Any]:
     t[f"{M}/LogServices"] = _col(f"{M}/LogServices", ["Sel" if kind != "hpe" else "IEL"])
     lid = "Sel" if kind != "hpe" else "IEL"
     t[f"{M}/LogServices/{lid}"] = {"Id": lid, "Name": "System Event Log" if kind != "hpe" else "iLO Event Log", "Entries": {"@odata.id": f"{M}/LogServices/{lid}/Entries"}}
-    ents = [{"Id": "1", "Created": "2026-10-20T10:00:00+00:00", "Severity": "OK", "Message": "The system inlet temperature is within range.", "MessageId": "TMP0121"},
-            {"Id": "2", "Created": "2026-10-22T03:10:00+00:00", "Severity": "Warning" if kind != "dell" else "OK",
+    ago = lambda h: (datetime.now(timezone.utc) - timedelta(hours=h)).strftime("%Y-%m-%dT%H:%M:%S+00:00")   # noqa: E731  날짜가 지나도 '최근 30일' 안
+    ents = [{"Id": "1", "Created": ago(72), "Severity": "OK", "Message": "The system inlet temperature is within range.", "MessageId": "TMP0121"},
+            {"Id": "2", "Created": ago(25), "Severity": "Warning" if kind != "dell" else "OK",
              "Message": "Correctable memory error rate exceeded for DIMM PROC 1 DIMM 3." if kind != "dell" else "Log cleared.", "MessageId": "MEM0701"},
-            {"Id": "3", "Created": "2026-10-22T04:00:00+00:00", "Severity": "Critical" if kind == "hpe" else "OK",
+            {"Id": "3", "Created": ago(24), "Severity": "Critical" if kind == "hpe" else "OK",
              "Message": "Power supply redundancy is lost." if kind == "hpe" else "Drive 0 inserted.", "MessageId": "PSU0003"}]
     t[f"{M}/LogServices/{lid}/Entries"] = {"Members": ents}
     t[f"{S}/LogServices"] = _col(f"{S}/LogServices", [])

@@ -127,6 +127,12 @@ class Posture:
         out.append(it("admin_mfa_enrolled", "auth", "high", "fail" if no and m.get("enabled") else "warn" if no else "pass",
                       "관리자 계정 MFA 등록", f"관리자 {len(admins)}명 중 미등록 {len(no)}명" + (f": {', '.join(no[:5])}" if no else ""),
                       "해당 관리자로 로그인해 인증 앱 등록(오른쪽 위 계정 › 2단계 인증)" if no else ""))
+        g = getattr(getattr(self.auth, "guard", None), "cfg", None) or {}     # 2.49.0 외부 로그인 보호
+        gok = g.get("external_lockout") == "account_ip" and int(g.get("stuffing_users") or 0) > 0
+        out.append(it("login_guard", "auth", "medium", "pass" if gok else "warn", "외부 로그인 보호(잠금 악용·계정 대입 차단)",
+                      f"외부 잠금 단위={g.get('external_lockout', '-')}, 계정 대입 차단={g.get('stuffing_users', 0)}개 아이디/"
+                      f"{g.get('stuffing_window_minutes', '-')}분, 세션 국가 고정={'켬' if g.get('session_country_bind') else '끔'}",
+                      "" if gok else "auth.guard.external_lockout: account_ip, stuffing_users: 5"))
         init = self.data_dir / "initial-admin.txt"
         if init.exists():
             out.append(it("initial_admin_file", "auth", "high", "fail", "초기 관리자 비밀번호 파일이 남아 있음",
@@ -370,6 +376,14 @@ class Posture:
         out.append(it("static_public", "web", "medium", "fail" if pub else "pass", "로그인 전 정적 파일 노출(전체 사전·앱 스크립트)",
                       ", ".join(pub) + " → 인증 없이 200" if pub else "i18n-en.js·core.js → 로그인 필요(로그인 화면은 i18n-login.js 만 공개)",
                       "auth.PUBLIC 공개 목록 확인" if pub else ""))
+        if not getattr(self, "_quick", False):           # 2.49.0 로그인 전 공개 표면 — 모든 GET 경로를 외부 비로그인으로 호출
+            from .security import surface
+            sf = await surface.scan(self.app(), self.probe_token or "")
+            op = sf["open"]
+            out.append(it("public_surface", "web", "high", "fail" if op else "pass", "로그인 전 공개 경로(전체 GET 경로 자동 점검)",
+                          (f"허용 목록 밖 공개 {len(op)}개: " + ", ".join(f"{r['path']}({r['status']})" for r in op[:6])) if op
+                          else f"{sf['checked']}개 경로 확인 — 공개 {len(sf['public'])}개(로그인 화면·헬스·사전 등 허용 목록)만 응답",
+                          "새로 공개된 경로의 인증 확인(auth.PUBLIC·라우트 토큰 검사)" if op else ""))
         rr = await self._probe_internal_h("/login", {"cf-visitor": '{"scheme":"http"}'})
         ok = rr is not None and rr.status_code in (301, 308) and rr.headers.get("location", "").startswith("https://")
         off = str((self.e.cfg.get("server") or {}).get("https_redirect", "proxy")).lower() == "off"

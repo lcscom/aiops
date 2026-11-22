@@ -32,6 +32,8 @@ DEFAULTS: dict[str, Any] = {
         "retention_days": 7,
         "tls": {"enabled": "auto", "certfile": "certs/aiops.crt", "keyfile": "certs/aiops.key", "keyfile_password": ""},
         "trusted_proxies": "127.0.0.1",   # 리버스 프록시(IIS ARR 등) 뒤에 둘 때 X-Forwarded-* 신뢰 대상
+        "edge_headers_external": True,    # 2.49.0 Cloudflare 머리글(CF-Ray·CF-Connecting-IP)이 붙은 요청도 외부로 판단
+        "security_contact": "",           # 2.49.0 /.well-known/security.txt 연락처(mailto:… 또는 https://…). 비우면 404
         "https_redirect": "proxy",        # 2.48.2 앞단(Cloudflare CF-Visitor·외부 이름의 X-Forwarded-Proto)이 http 라고 알리면 https 로 301/308. off 로 끔
         "access_log": False,
         "log_level": "info",
@@ -187,6 +189,10 @@ DEFAULTS: dict[str, Any] = {
         "dormant_days": 90,               # 장기 미사용 계정 자동 잠금(관리자 제외, 0=사용 안 함)
         "rate_limit_per_5min": 30,
         "write_rate_per_min": 240,        # 세션당 변경 요청(POST·PUT·DELETE) 분당 상한(0=무제한)
+        # 2.49.0 외부(인터넷) 로그인 보호 — external_lockout: account_ip(외부 실패는 계정+IP 단위로 잠금) | account(이전 동작)
+        "guard": {"external_lockout": "account_ip", "external_account_cap": 20, "external_window_minutes": 30,
+                  "stuffing_users": 5, "stuffing_window_minutes": 10, "ip_block_minutes": 30,
+                  "session_country_bind": True, "new_location_alert": True},
         "login_banner": "본 시스템은 인가된 사용자만 사용할 수 있으며 모든 접속·조작 기록은 감사 목적으로 저장됩니다.",
         "password": {"min_length": 9, "classes": 3, "expire_days": 90, "history": 3},
         "mfa": {"enabled": True, "required_roles": [], "issuer": "VCF AIops"},   # TOTP 2단계 — required_roles 에 admin 을 넣으면 관리자 필수

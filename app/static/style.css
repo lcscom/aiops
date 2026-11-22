@@ -1866,3 +1866,7 @@ input.cc-dirty,select.cc-dirty{outline:2px solid #d9a400;outline-offset:1px}
 .sl-diff{border:1px solid #f0c36d;background:#fff8e6;border-radius:6px;padding:6px 12px;font-size:12.5px;margin-bottom:8px}
 .sp-bar{height:6px;background:#eef1f4;border-radius:3px;overflow:hidden;min-width:70px}.sp-bar i{display:block;height:100%;background:linear-gradient(90deg,#f0a35b,#c62828)}
 .sl-exp{margin-left:auto;display:flex;gap:6px;align-items:center}.sl-exp a{font-size:12.5px}
+/* 2.49.0 외부 로그인 보호(사용자 관리) */
+#users-body .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+#users-body details { margin-top: 10px; }
+@media (max-width: 900px) { #users-body .grid2 { grid-template-columns: 1fr; } }
