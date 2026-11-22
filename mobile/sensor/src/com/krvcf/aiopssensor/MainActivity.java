@@ -24,6 +24,7 @@ import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.net.URL;
@@ -68,6 +69,7 @@ public class MainActivity extends Activity {
         runBtn = button("", new View.OnClickListener() { @Override public void onClick(View v) { toggle(); } });
         root.addView(runBtn);
         root.addView(button("배터리 최적화 제외(꺼지지 않게)", new View.OnClickListener() { @Override public void onClick(View v) { battery(); } }));
+        root.addView(button("수동 설정(서버 주소·간격·보정값)", new View.OnClickListener() { @Override public void onClick(View v) { manual(); } }));
         root.addView(button("현장 표시 모드(큰 글씨 화면)", new View.OnClickListener() { @Override public void onClick(View v) {
             startActivity(new Intent(MainActivity.this, DisplayActivity.class)); } }));
         updBtn = button("", new View.OnClickListener() { @Override public void onClick(View v) { Updater.start(MainActivity.this); } });
@@ -104,6 +106,7 @@ public class MainActivity extends Activity {
 
     /** QR 링크 vcfaiops-sensor://enroll?u=<서버>&c=<코드> */
     private void handle(Intent i) {
+        if (i != null && i.getBooleanExtra("ask_perms", false)) askPerms();
         Uri u = i == null ? null : i.getData();
         if (u == null || !"vcfaiops-sensor".equals(u.getScheme())) return;
         String s = u.getQueryParameter("u"), c = u.getQueryParameter("c");
@@ -143,6 +146,62 @@ public class MainActivity extends Activity {
                 : v.replace(",\"", "\n\"").replace("\"", "").replace("{", "").replace("}", ""));
     }
 
+    /** 2.53.0 수동 설정 — 원격 관리가 어려운 내부망·폐쇄망 폰에서 직접 바꿈.
+     *  서버 주소는 새 주소로 연결을 시험한 뒤에만 바꾸고(장치 토큰은 그대로), '이 폰 설정 우선'을 켜면 서버가 내려준 값보다 이 값을 씀 */
+    private void manual() {
+        final JSONObject l = SensorService.local(this), c = SensorService.cfg(this);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(18), dp(8), dp(18), 0);
+        final EditText srv = edit("서버 주소(예: http://10.10.1.20:8443)", InputType.TYPE_TEXT_VARIATION_URI);
+        srv.setText(Prefs.server(this));
+        final EditText iv = edit("전송 간격(초, 15~3600)", InputType.TYPE_CLASS_NUMBER);
+        iv.setText(String.valueOf(l.optInt("interval_s", c.optInt("interval_s", 60))));
+        final EditText to = edit("배터리 온도 보정(°C)", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
+        to.setText(String.valueOf(l.optDouble("temp_offset_c", c.optDouble("temp_offset_c", -3))));
+        final EditText so = edit("소리 보정(dB)", InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
+        so.setText(String.valueOf(l.optDouble("sound_offset_db", c.optDouble("sound_offset_db", 90))));
+        final android.widget.CheckBox lock = new android.widget.CheckBox(this);
+        lock.setText("이 폰 설정을 서버 설정보다 우선(간격·보정값)");
+        lock.setChecked(l.optBoolean("lock"));
+        for (View v : new View[]{label("서버 주소 — 내부 IP·포트로 바꿀 때(등록은 유지)"), srv, label("전송 간격(초)"), iv, label("배터리 온도 보정(°C)"), to,
+                label("소리 보정(dB)"), so, lock}) box.addView(v);
+        ScrollView sv = new ScrollView(this);
+        sv.addView(box);
+        new AlertDialog.Builder(this).setTitle("수동 설정").setView(sv)
+                .setPositiveButton("저장", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
+                    try {
+                        JSONObject n = new JSONObject().put("lock", lock.isChecked())
+                                .put("interval_s", Math.max(15, Math.min(3600, Integer.parseInt(iv.getText().toString().trim()))))
+                                .put("temp_offset_c", Math.max(-20, Math.min(20, Double.parseDouble(to.getText().toString().trim()))))
+                                .put("sound_offset_db", Math.max(40, Math.min(140, Double.parseDouble(so.getText().toString().trim()))));
+                        Prefs.put(MainActivity.this, "local", n.toString());
+                    } catch (Exception e) { toast("숫자 형식이 맞지 않습니다"); return; }
+                    final String url = srv.getText().toString().trim().replaceAll("/+$", "");
+                    if (!url.equals(Prefs.server(MainActivity.this)) && !Prefs.token(MainActivity.this).isEmpty()) changeServer(url);
+                    else if (Prefs.token(MainActivity.this).isEmpty()) { Prefs.put(MainActivity.this, "server", url); server.setText(url); }
+                    if (SensorService.running) SensorService.start(MainActivity.this, true);
+                    toast("저장했습니다");
+                } }).setNegativeButton("취소", null).show();
+    }
+
+    private TextView label(String t) { TextView v = text(t, 12, "#5F6B73"); v.setPadding(0, dp(8), 0, 0); return v; }
+
+    /** 서버 주소 바꾸기 — 새 주소로 실제 전송이 되면 바꾸고, 안 되면 원래 주소 유지 */
+    private void changeServer(final String url) {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) { toast("http:// 또는 https:// 로 시작해야 합니다"); return; }
+        new Thread(new Runnable() { @Override public void run() {
+            JSONArray cmd = new JSONArray();
+            try { cmd.put(new JSONObject().put("id", "local").put("op", "server").put("args", new JSONObject().put("url", url))); } catch (Exception ignored) { }
+            final JSONObject r = Remote.run(MainActivity.this, cmd).optJSONObject(0);
+            if (r != null && !r.optBoolean("ok") && r.optString("msg").contains("SSL")) { trustPrompt(url, true); return; }   // 이 스레드(네트워크)에서
+            ui.post(new Runnable() { @Override public void run() {
+                if (r != null && r.optBoolean("ok")) { server.setText(url); toast("서버 주소를 바꿨습니다"); }
+                else toast(r == null ? "실패" : r.optString("msg"));
+            } });
+        } }).start();
+    }
+
     /** 2.52.0 안정 운영 점검표 — 오래 두고 쓰려면 모두 ✔ 이어야 함 */
     private String checklist() {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
@@ -156,7 +215,9 @@ public class MainActivity extends Activity {
         List<String> miss = missing();
         b.append(miss.isEmpty() ? "✔" : "✖").append(" 권한").append(miss.isEmpty() ? "" : " — 없음: " + join(miss)).append('\n');
         b.append(SensorService.fullMode ? "✔" : "✖").append(" 카메라·마이크·위치 사용 중").append(SensorService.fullMode ? "" : " — 재부팅 뒤에는 앱을 한 번 열어야 함").append('\n');
-        b.append(Queue.size(this) == 0 ? "✔ 밀린 값 없음" : "… 밀린 값 " + Queue.size(this) + "건(연결되면 보냄)");
+        b.append(Queue.size(this) == 0 ? "✔ 밀린 값 없음" : "… 밀린 값 " + Queue.size(this) + "건(연결되면 보냄)").append('\n');
+        b.append(Remote.owner(this) ? "✔ 기기 소유자 — 포털에서 권한·화면·잠금·재부팅 원격 설정 가능" : "· 일반 설치 — 원격 설정은 일부만(전체는 설치 스크립트로 기기 소유자 지정)");
+        if (SensorService.local(this).optBoolean("lock")) b.append("\n· 이 폰 수동 설정 우선 중");
         return b.toString();
     }
 
@@ -256,7 +317,10 @@ public class MainActivity extends Activity {
     }
 
     /** 사설 인증서 — 지문을 보여 주고 사용자가 확인하면 이 서버 인증서만 신뢰(포털 › 시스템 › 인증서 지문과 비교) */
-    private void trustPrompt(final String s) {
+    private void trustPrompt(final String s) { trustPrompt(s, false); }
+
+    /** forChange: 등록이 아니라 서버 주소 바꾸기 중이면 신뢰 뒤 다시 주소 바꾸기 시도 */
+    private void trustPrompt(final String s, final boolean forChange) {
         try {
             final String host = new URL(s).getHost().toLowerCase(Locale.ROOT);
             final String fp = Net.peekCert(s);
@@ -266,7 +330,7 @@ public class MainActivity extends Activity {
                 new AlertDialog.Builder(MainActivity.this).setTitle("사설 인증서").setMessage(host + "\n\nSHA-256\n" + fp.replaceAll("(.{2})(?!$)", "$1:")
                         + "\n\n포털 인증서 지문과 같을 때만 신뢰하세요.")
                         .setPositiveButton("이 서버 신뢰", new DialogInterface.OnClickListener() { @Override public void onClick(DialogInterface d, int w) {
-                            Prefs.put(MainActivity.this, "pin:" + host, fp); enroll(); } })
+                            Prefs.put(MainActivity.this, "pin:" + host, fp); if (forChange) changeServer(s); else enroll(); } })
                         .setNegativeButton("취소", null).show();
             } });
         } catch (Exception e) {

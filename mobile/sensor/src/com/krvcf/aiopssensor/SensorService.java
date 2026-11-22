@@ -54,7 +54,7 @@ public class SensorService extends Service {
     private long nextAt = 0L, lateMax = 0L;
     private long startedAt = 0L;
     private JSONObject lastSample;
-    private String lastError = "";
+    private String lastError = "", msgExtra = "";
     private PowerManager.WakeLock keep;               // 충전 중 상시 WakeLock
     private final LocalAlarm local = new LocalAlarm();
 
@@ -64,6 +64,11 @@ public class SensorService extends Service {
     }
 
     static void stop(Context c) { c.stopService(new Intent(c, SensorService.class)); }
+
+    /** 원격 명령(권한 부여 뒤 등) — 카메라·마이크·위치까지 쓰는 모드로 다시 시작. 백그라운드에서 막히면 그대로 둠 */
+    static void restartFull(Context c) {
+        try { start(c, true); } catch (Exception ignored) { }
+    }
 
     @Override public IBinder onBind(Intent i) { return null; }
 
@@ -106,8 +111,20 @@ public class SensorService extends Service {
         super.onDestroy();
     }
 
+    /** 서버 설정 + (폰에서 '이 폰 설정 우선'을 켰으면) 폰 수동 설정 덮어쓰기(2.53.0) */
     static JSONObject cfg(Context c) {
-        try { return new JSONObject(Prefs.get(c, "config").isEmpty() ? "{}" : Prefs.get(c, "config")); } catch (Exception e) { return new JSONObject(); }
+        JSONObject o;
+        try { o = new JSONObject(Prefs.get(c, "config").isEmpty() ? "{}" : Prefs.get(c, "config")); } catch (Exception e) { o = new JSONObject(); }
+        JSONObject l = local(c);
+        if (l.optBoolean("lock")) {
+            Iterator<String> it = l.keys();
+            while (it.hasNext()) { String k = it.next(); if (!"lock".equals(k)) { try { o.put(k, l.get(k)); } catch (Exception ignored) { } } }
+        }
+        return o;
+    }
+
+    static JSONObject local(Context c) {
+        try { return new JSONObject(Prefs.get(c, "local").isEmpty() ? "{}" : Prefs.get(c, "local")); } catch (Exception e) { return new JSONObject(); }
     }
 
     List<String> sensors(JSONObject cfg, boolean full) {
@@ -215,6 +232,9 @@ public class SensorService extends Service {
         try { StatFs st = new StatFs(getFilesDir().getPath()); d.put("free_mb", st.getAvailableBytes() / (1024 * 1024)); } catch (Exception ignored) { }
         d.put("net", netType());
         if (!lastError.isEmpty()) d.put("last_error", lastError.length() > 200 ? lastError.substring(0, 200) : lastError);
+        d.put("owner", Remote.owner(this)).put("caps", Remote.caps(this)).put("server", Prefs.server(this));     // 2.53.0 원격 설정 가능 범위
+        JSONObject l = local(this);
+        if (l.optBoolean("lock")) d.put("local", l);
         return d;
     }
 
@@ -228,6 +248,10 @@ public class SensorService extends Service {
             if (nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) return "ethernet";
             return "other";
         } catch (Exception e) { return "?"; }
+    }
+
+    private JSONArray pendingResults() {
+        try { String t = Prefs.get(this, "cmd_results"); return t.isEmpty() ? new JSONArray() : new JSONArray(t); } catch (Exception e) { return new JSONArray(); }
     }
 
     private String readCrash() {
@@ -312,6 +336,8 @@ public class SensorService extends Service {
             peeked = Queue.lastPeek;
             if (batch.length() > 0) body.put("batch", batch);
             if (Prefs.getLong(this, "info_sent") != 1L) body.put("info", MainActivity.info(this));
+            JSONArray done = pendingResults();
+            if (done.length() > 0) body.put("cmd_results", done);
             String crash = readCrash();
             if (!crash.isEmpty()) body.put("crash", crash);
             Net.Res r = Net.json(this, "/api/sensor/push", body.toString());
@@ -319,6 +345,13 @@ public class SensorService extends Service {
                 JSONObject j = new JSONObject(r.body);
                 if (peeked > 0) Queue.drop(this, peeked);
                 if (!crash.isEmpty()) new File(getFilesDir(), "crash.txt").delete();
+                if (done.length() > 0) Prefs.put(this, "cmd_results", "");
+                JSONArray cmds = j.optJSONArray("commands");                  // 2.53.0 포털 원격 설정
+                if (cmds != null && cmds.length() > 0) {
+                    JSONArray res = Remote.run(this, cmds);
+                    Prefs.put(this, "cmd_results", res.toString());
+                    msgExtra = " · 원격 설정 " + res.length() + "건";
+                }
                 Prefs.putLong(this, "info_sent", 1L);
                 JSONObject nc = j.optJSONObject("config");
                 if (nc != null) {
@@ -337,6 +370,8 @@ public class SensorService extends Service {
                 String msg = "보냄 " + new java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.KOREA).format(new java.util.Date()) + " · " + summary(s);
                 if (peeked > 0) msg += " · 밀린 값 " + peeked + "건 보냄";
                 if (!update.isEmpty()) msg += " · 새 버전 " + update;
+                msg += msgExtra;
+                msgExtra = "";
                 if (j.optBoolean("snap")) msg += snap(cfg(this));
                 note(msg);
             } else if (r.code == 401) {

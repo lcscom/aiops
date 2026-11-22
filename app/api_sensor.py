@@ -28,7 +28,8 @@ from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 
-from .edgesense import DEFAULT_CONFIG, METRICS, SENSORS
+from .edgesense import COMMANDS, DEFAULT_CONFIG, METRICS, SENSORS, URL_RX
+from . import sensorprov
 
 
 def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
@@ -148,9 +149,10 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
             raise HTTPException(404, "사진이 없습니다")
         return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "private, max-age=86400", "X-Content-Type-Options": "nosniff"})
 
-    def qr_payload(request: Request, code: str) -> dict:
-        base = public_base(request)
-        setup = f"{base}/sensor-setup?c={quote(code)}"
+    def qr_payload(request: Request, code: str, server: str = "") -> dict:
+        """server: 폰이 접속할 주소(내부 IP:포트 등) — 비우면 포털 공개 주소"""
+        base = server.rstrip("/") if server and URL_RX.match(server.rstrip("/")) else public_base(request)
+        setup = f"{base}/sensor-setup?c={quote(code)}" + (f"&u={quote(base, safe='')}" if server else "")
         svg = ""
         try:
             import io
@@ -178,7 +180,7 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
                             headers={"Cache-Control": "no-store"})
 
     @r.get("/sensor-setup", include_in_schema=False)
-    async def setup(request: Request, c: str = ""):
+    async def setup(request: Request, c: str = "", u: str = ""):
         if not S._loaded:
             await S.load()
         d = S.code_device(c)
@@ -188,6 +190,9 @@ def build_router(ENGINE, S, who, audit, client_ip, public_base) -> APIRouter:
         uri = f"vcfaiops-sensor://enroll?u={quote(base, safe='')}&c={quote(c)}"
         left = max(1, int((d["enroll_until"] - time.time()) // 60))
         e = html.escape
+        if u and URL_RX.match(u.rstrip("/")):                            # 2.53.0 장치 추가 때 고른 주소(내부 IP 등)
+            base = u.rstrip("/")
+            uri = f"vcfaiops-sensor://enroll?u={quote(base, safe='')}&c={quote(c)}"
         page = f"""<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex"><title>AIops 센서 설치</title><style>
 body{{font:16px/1.55 system-ui,sans-serif;margin:0;padding:22px;color:#1b2a32;background:#f4f6f8}}h1{{font-size:21px;margin:0 0 4px}}
@@ -210,7 +215,7 @@ padding:14px;border-radius:8px;text-decoration:none;font-weight:600;margin:10px 
         except ValueError as e:
             raise HTTPException(400, str(e)) from None
         await audit(request, "sensor.create", res["device"]["id"], detail={"site": res["device"]["site"]})
-        return {**res, "enroll": qr_payload(request, res["code"])}
+        return {**res, "enroll": qr_payload(request, res["code"], str(b.get("server") or ""))}
 
     @r.put("/api/sensors/{did}")
     async def upd(did: str, request: Request):
@@ -226,9 +231,10 @@ padding:14px;border-radius:8px;text-decoration:none;font-weight:600;margin:10px 
     @r.post("/api/sensors/{did}/reenroll")
     async def reenroll(did: str, request: Request):
         g(did)
+        b = await body_json(request) if int(request.headers.get("content-length") or 0) else {}
         res = await S.reenroll(did)
         await audit(request, "sensor.reenroll", did)
-        return {**res, "enroll": qr_payload(request, res["code"])}
+        return {**res, "enroll": qr_payload(request, res["code"], str(b.get("server") or ""))}
 
     @r.post("/api/sensors/{did}/snap-now")
     async def snap_now(did: str, request: Request):
@@ -238,6 +244,62 @@ padding:14px;border-radius:8px;text-decoration:none;font-weight:600;margin:10px 
         S.request_snap(did)
         await audit(request, "sensor.snap_request", did)
         return {"ok": True, "next_push_within_s": d["config"]["interval_s"]}
+
+    # ---------------------------------------------------------------- 2.53.0 원격 설정·설치 스크립트·접속 주소
+    @r.get("/api/sensors/addresses")
+    async def addresses(request: Request):
+        """폰이 접속할 수 있는 이 서버 주소 후보(공개 주소·지금 접속 주소·서버 내부 IP)"""
+        return {"items": sensorprov.addresses(public_base(request), request)}
+
+    @r.get("/api/sensors/commands/meta")
+    async def cmd_meta():
+        return {"commands": {k: {"label": v["label"], "owner": v["owner"], "args": {a: t.__name__ for a, t in (v.get("args") or {}).items()}}
+                             for k, v in COMMANDS.items()}}
+
+    @r.get("/api/sensors/{did}/commands")
+    async def cmd_list(did: str):
+        g(did)
+        return {"items": await S.commands(did)}
+
+    @r.post("/api/sensors/{did}/commands")
+    async def cmd_add(did: str, request: Request):
+        g(did)
+        b = await body_json(request)
+        try:
+            res = await S.add_command(did, str(b.get("op") or ""), b.get("args") or {}, who(request).get("user", ""))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        await audit(request, "sensor.command", did, detail={"op": res["op"], "args": res["args"]})
+        return res
+
+    @r.delete("/api/sensors/{did}/commands/{cid}")
+    async def cmd_cancel(did: str, cid: str, request: Request):
+        g(did)
+        if not await S.cancel_command(did, cid):
+            raise HTTPException(409, "이미 폰이 가져간 명령은 취소할 수 없습니다")
+        await audit(request, "sensor.command_cancel", did, detail={"id": cid})
+        return {"ok": True}
+
+    @r.post("/api/sensors/{did}/provision")
+    async def provision(did: str, request: Request):
+        """adb 설치·설정 스크립트(.sh·.bat) — 등록 전 장치면 새 등록 코드를 넣음(등록된 폰이면 설정만)"""
+        d = g(did)
+        b = await body_json(request)
+        server = str(b.get("server") or "").rstrip("/")
+        if server and not URL_RX.match(server):
+            raise HTTPException(400, "서버 주소 형식: http(s)://호스트 또는 IP[:포트]")
+        server = server or public_base(request)
+        code = ""
+        if not d.get("enrolled") or b.get("reenroll"):
+            code = (await S.reenroll(did))["code"]
+        opts = {k: bool(b.get(k)) for k in ("owner", "stay_awake", "insecure")}
+        wl = {k: str(b.get(k) or "").strip()[:60] for k in ("phone_ip", "phone_port", "pair_port", "pair_code")}
+        try:
+            out = sensorprov.scripts(d, server, code, opts, wl)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from None
+        await audit(request, "sensor.provision", did, detail={"server": server, "owner": opts["owner"], "wireless": bool(wl["phone_ip"]), "new_code": bool(code)})
+        return out
 
     @r.post("/api/sensors/{did}/retire")
     async def retire(did: str, request: Request):

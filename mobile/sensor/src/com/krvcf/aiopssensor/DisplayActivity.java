@@ -46,7 +46,15 @@ public class DisplayActivity extends Activity {
         return t;
     }
 
-    @Override protected void onResume() { super.onResume(); loop(); }
+    @Override protected void onResume() {
+        super.onResume();
+        int k = getIntent() == null ? 0 : getIntent().getIntExtra("kiosk", 0);       // 2.53.0 원격 전용 화면 고정(기기 소유자만)
+        if (k == 1 && Remote.owner(this)) { try { startLockTask(); } catch (Exception ignored) { } }
+        if (k == 2) { try { stopLockTask(); } catch (Exception ignored) { } finish(); return; }
+        loop();
+    }
+
+    @Override protected void onNewIntent(android.content.Intent i) { super.onNewIntent(i); setIntent(i); }
     @Override protected void onPause() { super.onPause(); ui.removeCallbacksAndMessages(null); }
 
     private void loop() { draw(); ui.postDelayed(new Runnable() { @Override public void run() { loop(); } }, 3000); }

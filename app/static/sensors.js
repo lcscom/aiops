@@ -34,6 +34,7 @@
       const [s, p] = await Promise.all([A.api("GET", `/api/sensors/${encodeURIComponent(st.sel)}/series?metric=${st.metric}&hours=${st.hours}`, undefined, {background: true}),
         full || !st.snaps ? A.api("GET", `/api/sensors/${encodeURIComponent(st.sel)}/snaps?limit=24`, undefined, {background: true}) : Promise.resolve({items: st.snaps})]);
       st.series = s.points; st.snaps = p.items;
+      st.cmds = (await A.api("GET", `/api/sensors/${encodeURIComponent(st.sel)}/commands`, undefined, {background: true}).catch(() => ({items: []}))).items;
     } catch (e) { st.series = []; }
     draw();
   }
@@ -91,6 +92,58 @@
       ${cr ? `<details><summary>마지막 앱 오류 ${T(cr.ts)} — ${esc(cr.first)} <small>(누적 ${(d.info || {}).crashes || 1}회)</small></summary><pre class="sn-crash">${esc(cr.text)}</pre></details>` : ""}`;
   }
 
+  // 2.53.0 폰 원격 설정 — 명령은 폰이 다음 전송 때 가져가 실행(서버가 폰에 직접 접속하지 않음)
+  const OPS = [["grant_perms", "권한 부여", {}], ["stay_awake", "화면 켜짐 유지", {on: true}], ["stay_awake", "화면 켜짐 해제", {on: false}],
+    ["keyguard", "잠금 화면 끄기", {disable: true}], ["kiosk", "표시 모드 고정", {on: true}], ["kiosk", "고정 해제", {on: false}],
+    ["brightness", "밝기 낮춤", {value: 30}], ["reboot", "재부팅", {}], ["battery_prompt", "배터리 최적화 제외 요청", {}], ["perm_prompt", "권한 요청", {}],
+    ["alarm_volume", "경보 음량 100%", {percent: 100}], ["restart", "서비스 재시작", {}], ["display", "표시 모드 열기", {}], ["clear_queue", "밀린 값 삭제", {}],
+    ["server", "서버 주소 바꾸기…", null]];
+  const CST = {pending: "대기(다음 전송 때)", sent: "폰이 가져감", done: "완료"};
+  function remoteView(d) {
+    if (!d.enrolled || d.retired) return "";
+    const g = (d.health || {}).diag || {}, caps = g.caps || [], own = !!g.owner, can = A.can("settings");
+    const btn = ([op, lab, args], i) => { const ok = !g.app || caps.includes(op);
+      return `<button class="btn-sm ${op === "reboot" ? "danger" : ""}" data-cmd="${i}" ${ok && can ? "" : "disabled"} title="${ok ? "" : own ? "이 폰에서 지원 안 함" : "기기 소유자일 때만 — 설치 스크립트로 지정"}">${esc(lab)}</button>`; };
+    return `<h5>폰 원격 설정 <small>${g.app ? (own ? "기기 소유자 — 권한·화면·잠금·재부팅까지 원격으로" : "일반 설치 — 사람 손이 필요한 설정은 폰에 '눌러서 설정' 알림")
+        : "앱 진단 보고 전"} · 폰이 다음 전송 때(최대 ${d.config.interval_s}초) 가져가 실행${g.server ? ` · 폰의 서버 주소 ${esc(g.server)}` : ""}</small></h5>
+      <div class="sn-ops">${OPS.map(btn).join("")}
+        ${can ? `<button class="btn-sm solid" data-act="provision">설치·설정 스크립트(adb)</button>` : ""}</div>
+      ${(st.cmds || []).length ? `<table class="sn-cmds"><thead><tr><th>요청</th><th>명령</th><th>상태</th><th>결과</th><th></th></tr></thead><tbody>${st.cmds.slice(0, 8).map(c => `<tr>
+        <td>${T(c.created)} <small class="sub">${esc(c.by || "")}</small></td><td>${esc(c.label)}${Object.keys(c.args || {}).length ? ` <small class="sub">${esc(JSON.stringify(c.args))}</small>` : ""}</td>
+        <td>${c.state === "done" ? (c.ok ? chip("ok").replace("정상", "완료") : chip("crit").replace("위험", "실패")) : esc(CST[c.state])}</td><td>${esc(c.msg || "")}</td>
+        <td>${c.state === "pending" && can ? `<button class="btn-sm" data-cancel="${esc(c.id)}">취소</button>` : ""}</td></tr>`).join("")}</tbody></table>` : ""}`;
+  }
+
+  async function provision(d) {
+    let addrs = [];
+    try { addrs = (await A.api("GET", "/api/sensors/addresses")).items; } catch {}
+    const v = await A.modal({title: `설치·설정 스크립트 — ${d.name}`, ok: "스크립트 만들기", wide: true,
+      html: `<p class="modal-text">PC 에서 adb 로 이 폰을 한 번에 준비합니다: 앱 설치(권한 자동 허용) · 배터리 최적화 제외 · 백그라운드 실행 허용 · (선택) 화면 켜짐 유지 · (선택) 기기 소유자 지정 · 등록.
+        포털은 스크립트만 만들고 실행하지 않습니다.${d.enrolled ? " 이미 등록된 폰이라 등록 단계는 빼고 설정만 넣습니다." : " 새 등록 코드(30분)가 들어갑니다."}</p>`,
+      fields: [{id: "server", label: "폰이 접속할 서버 주소", type: "select", options: [...addrs.map(a => [a.url, `${a.url} — ${a.note}`]), ["", "직접 입력(아래)"]], value: (addrs[0] || {}).url || ""},
+        {id: "custom", label: "직접 입력(내부 IP·포트)", placeholder: "예: http://10.10.1.20:8443", value: (((d.health || {}).diag || {}).server && !addrs.some(a => a.url === d.health.diag.server)) ? d.health.diag.server : ""},
+        {id: "owner", label: "기기 소유자 지정(계정 없는 폰 — 원격 권한·화면·잠금·재부팅)", type: "checkbox", value: true},
+        {id: "stay_awake", label: "충전 중 화면 켜짐 유지(표시 모드용)", type: "checkbox", value: false},
+        {id: "insecure", label: "서버 인증서 확인 건너뛰기(사설 인증서 — APK 받을 때만)", type: "checkbox", value: false},
+        {id: "phone_ip", label: "무선 연결 — 폰 내부 IP(비우면 USB)", placeholder: "예: 10.10.1.57"},
+        {id: "phone_port", label: "무선 연결 포트", placeholder: "Android 11+: 무선 디버깅 화면의 IP:포트, 그 이하 5555"},
+        {id: "pair_port", label: "페어링 포트(Android 11+)", placeholder: "무선 디버깅 › 페어링 코드로 기기 페어링"},
+        {id: "pair_code", label: "페어링 코드(6자리)"}]});
+    if (!v) return;
+    try {
+      const r = await A.api("POST", `/api/sensors/${d.id}/provision`, {server: v.custom || v.server, owner: v.owner, stay_awake: v.stay_awake, insecure: v.insecure,
+        phone_ip: v.phone_ip, phone_port: v.phone_port, pair_port: v.pair_port, pair_code: v.pair_code});
+      A.modal({title: "설치·설정 스크립트", ok: "", cancel: "닫기", wide: true, html: `<p class="modal-text">서버 ${esc(r.server)}${r.has_code ? " · 등록 코드 포함(30분 안 1회용)" : ""}</p>
+        ${r.notes.map(n => `<p class="sub">· ${esc(n)}</p>`).join("")}
+        <p><button class="btn-sm solid" data-dl="sh">Linux·macOS (.sh)</button> <button class="btn-sm solid" data-dl="bat">Windows (.bat)</button></p>
+        <pre class="sn-crash">${esc(r.sh.text)}</pre>`, onOpen: m => m.addEventListener("click", e => {
+          const k = e.target.dataset && e.target.dataset.dl; if (!k) return;
+          A.download(r[k].name, new Blob([r[k].text], {type: "text/plain;charset=utf-8"}));
+        })});
+      await load();
+    } catch (e) { A.fail("설치 스크립트", e); }
+  }
+
   function detailView(d) {
     const L = d.latest || {}, c = d.config || {}, info = d.info || {};
     const avail = info.sensors || [];
@@ -120,6 +173,7 @@
             <img loading="lazy" alt="${T(s.ts)}" src="/api/sensors/${encodeURIComponent(d.id)}/snap/${encodeURIComponent(s.name)}"><small>${T(s.ts)}</small></a>`).join("") || `<div class="empty small">${c.sensors.includes("camera") ? "사진 없음 — '지금 촬영' 또는 자동 촬영 간격 설정" : "카메라 꺼짐"}</div>`}</div></div>
       </div>
       ${healthView(d)}
+      ${remoteView(d)}
       <h5>추이 <a class="btn-sm" href="/api/sensors/${encodeURIComponent(d.id)}/export.csv?hours=${Math.max(st.hours, 24)}" download>CSV</a> <select id="sn-metric">${CHART.map(k => `<option value="${k}" ${k === st.metric ? "selected" : ""}>${esc(M(k).label)}</option>`).join("")}</select>
         <select id="sn-hours">${[[6, "6시간"], [24, "24시간"], [72, "3일"], [168, "7일"], [720, "30일"]].map(([h, l]) => `<option value="${h}" ${h === st.hours ? "selected" : ""}>${l}</option>`).join("")}</select></h5>
       ${spark(st.series, st.metric)}
@@ -169,13 +223,17 @@
   }
 
   async function addDevice() {
+    let addrs = [];
+    try { addrs = (await A.api("GET", "/api/sensors/addresses")).items; } catch {}
     const v = await A.modal({title: "현장 센서 장치 추가", ok: "등록 코드 만들기", fields: [
       {id: "name", label: "이름", required: true, placeholder: "예: 본점 전산실 A열"},
       {id: "site", label: "위치(사이트)", placeholder: "예: 본점 3층 전산실"},
-      {id: "note", label: "메모", placeholder: "예: 항온항습기 앞, 랙 A-03 위"}]});
+      {id: "note", label: "메모", placeholder: "예: 항온항습기 앞, 랙 A-03 위"},
+      {id: "server", label: "폰이 접속할 서버 주소(QR 에 들어감)", type: "select", options: [...addrs.map(a => [a.url, `${a.url} — ${a.note}`]), ["", "직접 입력(아래)"]], value: (addrs[0] || {}).url || ""},
+      {id: "custom", label: "직접 입력 — 내부 IP·포트", placeholder: "예: http://10.10.1.20:8443 (폰이 같은 내부망일 때)"}]});
     if (!v) return;
     try {
-      const r = await A.api("POST", "/api/sensors", v);
+      const r = await A.api("POST", "/api/sensors", {name: v.name, site: v.site, note: v.note, server: v.custom || v.server});
       st.sel = r.device.id; st.snaps = null; st.series = null; await load(); showEnroll(r.device, r.enroll, r.expires);
     } catch (e) { A.fail("장치 추가", e); }
   }
@@ -196,12 +254,34 @@
     b.addEventListener("click", async e => {
       const c = e.target.closest("[data-dev]"); if (c) { st.sel = st.sel === c.dataset.dev ? "" : c.dataset.dev; st.series = null; st.snaps = null; draw(); if (st.sel) detail(); return; }
       if (e.target.id === "sns-add2") return addDevice();
+      const cb = e.target.closest("[data-cmd]"), cc = e.target.closest("[data-cancel]");
+      if (cb || cc) {
+        const id = st.sel;
+        try {
+          if (cc) { await A.api("DELETE", `/api/sensors/${id}/commands/${cc.dataset.cancel}`); }
+          else {
+            const [op, lab, preset] = OPS[+cb.dataset.cmd];
+            let args = preset || {};
+            if (op === "server") {
+              const v = await A.modal({title: "폰의 서버 주소 바꾸기", ok: "보내기", fields: [{id: "url", label: "새 주소(내부 IP·포트 가능)", required: true, placeholder: "예: http://10.10.1.20:8443"}],
+                html: `<p class="modal-text">폰이 새 주소로 실제 전송이 되는지 시험한 뒤에만 바꿉니다(안 되면 원래 주소 유지). 등록은 그대로입니다.</p>`});
+              if (!v) return; args = {url: v.url};
+            }
+            if (op === "reboot" && !await A.confirm("폰 재부팅", "폰을 다시 시작합니다. 잠금 비밀번호가 있으면 사람이 풀어야 앱이 다시 돕니다.", true)) return;
+            const r = await A.api("POST", `/api/sensors/${id}/commands`, {op, args});
+            A.ok(lab, r.warn || `폰이 다음 전송(최대 ${r.next_push_within_s}초) 때 실행합니다`);
+          }
+          await detail(false);
+        } catch (err) { A.fail("원격 설정", err); }
+        return;
+      }
       const a = e.target.closest("[data-act]"); if (!a) return;
       const id = st.sel, d = st.items.find(x => x.id === id); if (!d) return;
+      if (a.dataset.act === "provision") return provision(d);
       try {
         if (a.dataset.act === "snap") { const r = await A.api("POST", `/api/sensors/${id}/snap-now`); A.ok("촬영 요청", `폰이 다음 전송(최대 ${r.next_push_within_s}초 안)에 사진을 보냅니다`); await load(); setTimeout(() => detail(), (r.next_push_within_s + 15) * 1000); }
         if (a.dataset.act === "reenroll") { if (d.enrolled && !await A.confirm("폰 다시 등록", "지금 폰의 장치 토큰을 폐기하고 새 등록 코드를 만듭니다. 폰 앱에서 다시 등록해야 측정이 이어집니다.")) return;
-          const r = await A.api("POST", `/api/sensors/${id}/reenroll`); await load(); showEnroll(d, r.enroll, r.expires); }
+          const r = await A.api("POST", `/api/sensors/${id}/reenroll`, {server: ((d.health || {}).diag || {}).server || ""}); await load(); showEnroll(d, r.enroll, r.expires); }
         if (a.dataset.act === "retire") { if (!await A.confirm("퇴역", "감시를 멈추고 토큰을 폐기합니다. 기록·사진은 남습니다.")) return; await A.api("POST", `/api/sensors/${id}/retire`); await load(); }
         if (a.dataset.act === "delete") { if (!await A.confirm("삭제", "장치와 측정 기록·사진을 모두 지웁니다. 되돌릴 수 없습니다.", true)) return; await A.api("DELETE", `/api/sensors/${id}`); st.sel = ""; await load(); }
         if (a.dataset.act === "home") { await A.api("PUT", `/api/sensors/${id}`, {set_home: true}); A.ok("기준 위치", "지금 위치를 기준으로 정했습니다"); await load(); }

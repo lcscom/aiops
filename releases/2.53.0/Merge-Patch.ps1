@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Merge the split patch bundle parts (vcf-aiops-patch-2.52.0.tgz.part00, .part01, ...) into one file and verify its SHA-256.
+    Merge the split patch bundle parts (vcf-aiops-patch-2.53.0.tgz.part00, .part01, ...) into one file and verify its SHA-256.
 
 .DESCRIPTION
-    1. Finds vcf-aiops-patch-2.52.0.tgz.partNN files in -Path (default: the folder this script is in).
+    1. Finds vcf-aiops-patch-2.53.0.tgz.partNN files in -Path (default: the folder this script is in).
     2. Checks that part numbers are contiguous (part00 .. partNN, no gaps).
     3. Concatenates the parts in numeric order into a temporary file, then renames it to
-       vcf-aiops-patch-2.52.0.tgz (an interrupted run never leaves a half-written file behind).
+       vcf-aiops-patch-2.53.0.tgz (an interrupted run never leaves a half-written file behind).
     4. Verifies the result against the SHA-256 in SHA256SUMS (if present) or the hash
        built into this script, and checks the total size.
     Exit code: 0 = merged and verified, 1 = any error or checksum mismatch.
@@ -15,7 +15,7 @@
     Folder containing the parts and SHA256SUMS. Default: the script folder.
 
 .PARAMETER Output
-    Output file path. Default: <Path>\vcf-aiops-patch-2.52.0.tgz
+    Output file path. Default: <Path>\vcf-aiops-patch-2.53.0.tgz
 
 .PARAMETER Force
     Rebuild the output even if it already exists with a different hash.
@@ -49,9 +49,9 @@ Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 
 # ---------------------------------------------------------------- release constants
-$FileName     = "vcf-aiops-patch-2.52.0.tgz"
-$BuiltInHash  = "be53e9746324ae421f282028585aca046e1b43ccbeb798de338bae681962b0d5"
-$ExpectedSize = 54482087
+$FileName     = "vcf-aiops-patch-2.53.0.tgz"
+$BuiltInHash  = "6de54b696c42803e20b8c5ab088979d09061ba7a2efacff6ca0d3f321dd770f5"
+$ExpectedSize = 54504050
 $SumsName     = "SHA256SUMS"
 
 function Write-Info([string]$m) { Write-Host "[INFO] $m" -ForegroundColor Cyan }
@@ -193,7 +193,7 @@ try {
         Write-Pass ("Deleted {0} part file(s)." -f $parts.Count)
     }
     Write-Host ""
-    Write-Host "Done. Apply via web console > System & patches > upload, or: sudo vcf-aiopsctl patch vcf-aiops-patch-2.52.0.tgz" -ForegroundColor White
+    Write-Host "Done. Apply via web console > System & patches > upload, or: sudo vcf-aiopsctl patch vcf-aiops-patch-2.53.0.tgz" -ForegroundColor White
     exit 0
 }
 catch {

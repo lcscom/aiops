@@ -35,7 +35,28 @@ CREATE TABLE IF NOT EXISTS sensor_samples(dev TEXT, ts REAL, m TEXT, v REAL);
 CREATE INDEX IF NOT EXISTS ix_sensor_samples ON sensor_samples(dev, m, ts);
 CREATE TABLE IF NOT EXISTS sensor_snaps(dev TEXT, ts REAL, name TEXT, size INTEGER, reason TEXT);
 CREATE INDEX IF NOT EXISTS ix_sensor_snaps ON sensor_snaps(dev, ts);
+CREATE TABLE IF NOT EXISTS sensor_cmds(id TEXT PRIMARY KEY, dev TEXT, op TEXT, args TEXT, by TEXT, created REAL, sent REAL DEFAULT 0,
+  done REAL DEFAULT 0, ok INTEGER, msg TEXT DEFAULT '');
+CREATE INDEX IF NOT EXISTS ix_sensor_cmds ON sensor_cmds(dev, created);
 """
+
+# 2.53.0 원격 설정 명령 — 폰이 다음 전송 때 가져가 실행(서버가 폰에 직접 접속하지 않음). owner=기기 소유자일 때만 실제 적용
+COMMANDS: dict[str, dict] = {
+    "grant_perms":    {"label": "권한 부여(카메라·마이크·위치·알림)", "owner": True},
+    "stay_awake":     {"label": "충전 중 화면 켜짐 유지", "owner": True, "args": {"on": bool}},
+    "keyguard":       {"label": "잠금 화면 끄기", "owner": True, "args": {"disable": bool}},
+    "kiosk":          {"label": "현장 표시 모드로 고정", "owner": True, "args": {"on": bool}},
+    "brightness":     {"label": "화면 밝기", "owner": True, "args": {"value": int}},
+    "reboot":         {"label": "폰 재부팅", "owner": True},
+    "battery_prompt": {"label": "배터리 최적화 제외 요청(폰에 알림)", "owner": False},
+    "perm_prompt":    {"label": "권한 허용 요청(폰에 알림)", "owner": False},
+    "alarm_volume":   {"label": "경보 음량", "owner": False, "args": {"percent": int}},
+    "restart":        {"label": "측정 서비스 다시 시작", "owner": False},
+    "clear_queue":    {"label": "폰에 밀린 값 삭제", "owner": False},
+    "display":        {"label": "현장 표시 모드 열기", "owner": False},
+    "server":         {"label": "서버 주소 바꾸기(연결 시험 후)", "owner": False, "args": {"url": str}},
+}
+URL_RX = re.compile(r"^https?://[A-Za-z0-9.\-]+(:\d{1,5})?(/[\w\-./]*)?$|^https?://\[[0-9A-Fa-f:.]+\](:\d{1,5})?(/[\w\-./]*)?$")
 
 # 측정값 정의 — 이름, 단위, 표시, 숫자 범위(이 밖은 버림)
 METRICS: dict[str, dict] = {
@@ -413,6 +434,8 @@ class EdgeSense:
             d["info"]["backfill"] = {"count": back, "at": now}
             await self._emit(d, "info", f"현장 센서 밀린 값 수신: {d['name']} — 통신이 끊긴 동안 쌓인 측정값 {back}건", kind="event")
         keep = {k: d["latest"][k] for k in ("snap", "snap_ts", "alert_snap", "alert_snap_ts") if k in (d.get("latest") or {})}
+        if not s:                                                             # 값 없는 전송(원격 설정 확인 등)은 최신값을 지우지 않음
+            keep = {**(d.get("latest") or {}), **keep}
         prev_light = (d.get("latest") or {}).get("light")
         d["latest"] = {**keep, **s, "ts": now, **({"temp_src": tsrc} if tsrc else {})}
         self._tsrc = tsrc
@@ -434,10 +457,81 @@ class EdgeSense:
             last = await self.store.q1("SELECT MAX(ts) t FROM sensor_snaps WHERE dev=?", (d["id"],))
             snap = not last or not last["t"] or now - last["t"] >= cfg["snap_interval_m"] * 60
         res = {"ok": True, "config": cfg, "snap": snap, "server_time": now, "backfilled": back}
+        if isinstance(body.get("cmd_results"), list):                        # 2.53.0 원격 설정 결과
+            await self._cmd_results(d, body["cmd_results"])
+        cmds = await self.store.q("SELECT id, op, args FROM sensor_cmds WHERE dev=? AND sent=0 ORDER BY created LIMIT 10", (d["id"],))
+        if cmds:
+            await self.store.x("UPDATE sensor_cmds SET sent=? WHERE dev=? AND id IN (%s)" % ",".join("?" * len(cmds)), (now, d["id"], *[c["id"] for c in cmds]))
+            res["commands"] = [{"id": c["id"], "op": c["op"], "args": json.loads(c["args"] or "{}")} for c in cmds]
         up = self.app_update((d["info"].get("diag") or {}).get("app_code"))
         if up:
             res["app"] = up
         return res
+
+    # ------------------------------------------------------------------ 2.53.0 원격 설정
+    async def add_command(self, did: str, op: str, args: dict | None, by: str) -> dict:
+        d = self._get(did)
+        if op not in COMMANDS:
+            raise ValueError("모르는 명령")
+        spec = COMMANDS[op]
+        clean: dict[str, Any] = {}
+        for k, t in (spec.get("args") or {}).items():
+            v = (args or {}).get(k)
+            if v is None:
+                continue
+            if t is bool:
+                clean[k] = bool(v)
+            elif t is int:
+                clean[k] = int(float(v))
+            else:
+                clean[k] = str(v).strip()[:300]
+        if op == "server" and not URL_RX.match(clean.get("url", "")):
+            raise ValueError("서버 주소 형식: http(s)://호스트 또는 IP[:포트]")
+        if op == "brightness":
+            clean["value"] = max(0, min(255, clean.get("value", 40)))
+        if op == "alarm_volume":
+            clean["percent"] = max(0, min(100, clean.get("percent", 80)))
+        cid = secrets.token_hex(6)
+        await self.store.x("INSERT INTO sensor_cmds(id,dev,op,args,by,created) VALUES(?,?,?,?,?,?)",
+                           (cid, did, op, json.dumps(clean, ensure_ascii=False), by[:60], time.time()))
+        g = (d.get("info") or {}).get("diag") or {}
+        warn = ""
+        if spec["owner"] and g and not g.get("owner"):
+            warn = "이 폰은 기기 소유자가 아니라 적용되지 않을 수 있습니다(설치 스크립트로 지정)"
+        return {"id": cid, "op": op, "args": clean, "warn": warn, "next_push_within_s": d["config"]["interval_s"]}
+
+    async def _cmd_results(self, d: dict, results: list) -> None:
+        now = time.time()
+        for r in results[:20]:
+            if not isinstance(r, dict) or not r.get("id"):
+                continue
+            row = await self.store.q1("SELECT id, op FROM sensor_cmds WHERE id=? AND dev=?", (str(r["id"])[:20], d["id"]))
+            if not row:
+                continue
+            ok = bool(r.get("ok"))
+            msg = str(r.get("msg") or "")[:300]
+            await self.store.x("UPDATE sensor_cmds SET done=?, ok=?, msg=? WHERE id=?", (now, 1 if ok else 0, msg, row["id"]))
+            label = COMMANDS.get(row["op"], {}).get("label", row["op"])
+            await self._emit(d, "info", f"현장 센서 원격 설정 {'완료' if ok else '실패'}: {d['name']} — {label}: {msg}", kind="event", command=row["op"])
+
+    async def commands(self, did: str, limit: int = 30) -> list[dict]:
+        self._get(did)
+        rows = await self.store.q("SELECT id, op, args, by, created, sent, done, ok, msg FROM sensor_cmds WHERE dev=? ORDER BY created DESC LIMIT ?", (did, limit))
+        out = []
+        for r in rows:
+            x = dict(r)
+            x["args"] = json.loads(x["args"] or "{}")
+            x["label"] = COMMANDS.get(x["op"], {}).get("label", x["op"])
+            x["state"] = "done" if x["done"] else "sent" if x["sent"] else "pending"
+            out.append(x)
+        return out
+
+    async def cancel_command(self, did: str, cid: str) -> bool:
+        row = await self.store.q1("SELECT sent FROM sensor_cmds WHERE dev=? AND id=?", (did, cid))
+        if not row or row["sent"]:
+            return False
+        await self.store.x("DELETE FROM sensor_cmds WHERE dev=? AND id=? AND sent=0", (did, cid))
+        return True
 
     APP_JSON = Path(__file__).resolve().parent / "static" / "app" / "sensor.json"
 
@@ -466,12 +560,18 @@ class EdgeSense:
                     out[k] = int(float(x[k]))
             except (TypeError, ValueError):
                 pass
-        for k in ("full", "battery_exempt", "plugged"):
+        for k in ("full", "battery_exempt", "plugged", "owner"):
             if k in x:
                 out[k] = bool(x[k])
         for k in ("app", "wake", "net", "last_error"):
             if x.get(k) is not None:
                 out[k] = str(x[k])[:200]
+        if isinstance(x.get("caps"), list):
+            out["caps"] = [str(c)[:30] for c in x["caps"][:30] if str(c)[:30] in COMMANDS or str(c) in ("server",)]
+        if x.get("server") is not None:
+            out["server"] = str(x["server"])[:200]
+        if isinstance(x.get("local"), dict):
+            out["local"] = {k: x["local"][k] for k in ("lock", "interval_s", "temp_offset_c", "sound_offset_db") if k in x["local"]}
         p = x.get("perms") if isinstance(x.get("perms"), dict) else {}
         out["perms"] = {k: bool(p.get(k)) for k in ("camera", "mic", "location", "notify") if k in p}
         return out
@@ -512,6 +612,10 @@ class EdgeSense:
             add("warn", "crash", f"최근 24시간 안에 앱 오류로 다시 시작됨 — {cr.get('first', '')}")
         if self.app_update(g.get("app_code")):
             add("info", "update", f"새 앱 버전 {self.app_meta().get('name')} — 폰 앱에서 '새 버전 설치'")
+        if g.get("owner") is False:
+            add("info", "not_owner", "일반 설치 — 권한·화면·잠금·재부팅 원격 설정은 안 됨(설치 스크립트로 기기 소유자 지정 시 가능)")
+        if (g.get("local") or {}).get("lock"):
+            add("info", "local", "폰에서 수동 설정 우선 중 — 간격·보정값은 폰 값이 적용됨")
         if g.get("last_error"):
             add("info", "last_error", "최근 오류: " + g["last_error"])
         lv = "warn" if any(i["level"] == "warn" for i in iss) else "ok"
@@ -643,7 +747,7 @@ class EdgeSense:
             for d in list(self.devs.values()):
                 if d.get("retired") or not d.get("enrolled"):
                     continue
-                stale = max(self.stale, int(d["config"]["interval_s"]) * 4)
+                stale = max(self.stale, self.interval(d) * 4)
                 if d.get("last_seen") and now - d["last_seen"] > stale and not d["state"].get("_offline"):
                     d["state"]["_offline"] = True
                     await self._emit(d, "warning", f"현장 센서 무응답: {d['name']} — {int((now - d['last_seen']) // 60)}분 동안 측정값 없음 "
@@ -661,7 +765,7 @@ class EdgeSense:
             status = "retired"
         elif not d.get("enrolled"):
             status = "pending"
-        elif d["state"].get("_offline") or not d.get("last_seen") or now - d["last_seen"] > max(self.stale, d["config"]["interval_s"] * 4):
+        elif d["state"].get("_offline") or not d.get("last_seen") or now - d["last_seen"] > max(self.stale, self.interval(d) * 4):
             status = "offline"
         elif any(v == "crit" for k, v in d["state"].items() if not k.startswith("_")):
             status = "crit"
@@ -675,6 +779,15 @@ class EdgeSense:
                 "latest": d.get("latest") or {}, "levels": {k: v for k, v in d["state"].items() if not k.startswith("_")},
                 "enroll_pending": bool(d.get("enroll_hash")) and (d.get("enroll_until") or 0) > now,
                 "snap_requested": d["id"] in self.snap_req, "health": self.health(d)}
+
+    @staticmethod
+    def interval(d: dict) -> int:
+        """실제 전송 간격 — 폰에서 수동 설정 우선이면 그 값"""
+        loc = (((d.get("info") or {}).get("diag") or {}).get("local") or {})
+        try:
+            return int(loc["interval_s"]) if loc.get("lock") and loc.get("interval_s") else int(d["config"]["interval_s"])
+        except (TypeError, ValueError):
+            return int(d["config"]["interval_s"])
 
     def list(self) -> list[dict]:
         order = {"crit": 0, "offline": 1, "warn": 2, "pending": 3, "ok": 4, "retired": 5}

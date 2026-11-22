@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 기기 소유자(Device Owner)로 지정했을 때만 쓰임 — 원격 설정(권한 부여·화면 켜짐 유지·잠금 화면 끄기·전용 화면 고정·재부팅) -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>

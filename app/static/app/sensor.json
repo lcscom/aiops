@@ -1,9 +1,9 @@
 {
  "package": "com.krvcf.aiopssensor",
- "name": "2.52.0",
- "code": 25200,
- "size": 78578,
- "sha256": "ac7a924345aa15ccd37adbd702684e1b4f087ceb8e8098d1e519ed4e465bd69e",
+ "name": "2.53.0",
+ "code": 25300,
+ "size": 82744,
+ "sha256": "8a46694acd3df250cd1a22f2315a8a74b93c9e77ecb3ef65cb002813c3b0bdf0",
  "cert_sha256": "987bf65a91dc60265898cb05da108e53a81a94486c684d4226107979a08e15a5",
  "min_android": "8.0",
  "built": "2026-11-23"

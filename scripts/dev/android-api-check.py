@@ -35,6 +35,11 @@ KNOWN = {
     ("android/app/job/JobInfo$Builder", "setPeriodic"): 21,
     ("android/os/HandlerThread", "join"): 1,                         # Thread 상속(오탐 방지)
     ("android/os/HandlerThread", "start"): 1,
+    # 2.53.0 기기 소유자 원격 설정
+    ("android/app/admin/DevicePolicyManager", "setPermissionGrantState"): 23,
+    ("android/app/admin/DevicePolicyManager", "setKeyguardDisabled"): 23,
+    ("android/app/admin/DevicePolicyManager", "reboot"): 24,
+    ("android/app/admin/DevicePolicyManager", "setSystemSetting"): 28,
     # 운영자 앱(mobile/android)
     ("android/app/Activity", "getMainExecutor"): 28,
     ("android/content/Context", "getMainExecutor"): 28,
